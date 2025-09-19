@@ -680,12 +680,13 @@ def main():
     
     # Step 1: File Upload (Collapsible)
     with st.expander("📂 **Step 1: Upload Contact List**", expanded=True):
-        st.markdown("""
-        <div class="upload-hint">
-            <h4>📋 Upload Excel File</h4>
-            <p>Upload your Excel file with <strong>Name</strong> and <strong>Phone_Number</strong> columns</p>
+
+        st.markdown(textwrap.dedent(f"""
+        <div class="progress-container">
+          <div class="progress-bar" style="width: {progress * 100}%"></div>
         </div>
-        """, unsafe_allow_html=True)
+        """), unsafe_allow_html=True)
+        
         
         uploaded_file = st.file_uploader(
             "Choose an Excel file",
