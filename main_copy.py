@@ -171,38 +171,7 @@ st.markdown("""
     .metric-failed { color: #ef4444; }
     .metric-calling { color: #f59e0b; }
     
-    /* Status badges */
-    .status-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.25rem 0.75rem;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 500;
-    }
-    
-    .status-waiting {
-        background: #f3f4f6;
-        color: #6b7280;
-    }
-    
-    .status-calling {
-        background: #fef3c7;
-        color: #d97706;
-        animation: pulse 2s infinite;
-    }
-    
-    .status-completed {
-        background: #d1fae5;
-        color: #065f46;
-    }
-    
-    .status-failed {
-        background: #fee2e2;
-        color: #dc2626;
-    }
-    
+    /* Simple animations */
     @keyframes pulse {
         0%, 100% { opacity: 1; }
         50% { opacity: 0.7; }
@@ -661,48 +630,23 @@ def main():
                 failed_count = len([c for c in valid_contacts if st.session_state.contact_statuses.get(c['id']) == 'failed'])
                 calling_count = 1 if st.session_state.calling_in_progress else 0
                 
-                # Metrics row
+                # Metrics row - using native Streamlit metrics
                 col1, col2, col3, col4, col5 = st.columns(5)
                 
                 with col1:
-                    st.markdown(f"""
-                    <div class="metric-container">
-                        <div class="metric-value metric-total">{total_contacts}</div>
-                        <div class="metric-label">Total Valid</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.metric("📋 Total Valid", total_contacts)
                 
                 with col2:
-                    st.markdown(f"""
-                    <div class="metric-container">
-                        <div class="metric-value metric-selected">{selected_count}</div>
-                        <div class="metric-label">Selected</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.metric("🔵 Selected", selected_count)
                 
                 with col3:
-                    st.markdown(f"""
-                    <div class="metric-container">
-                        <div class="metric-value metric-calling">{calling_count}</div>
-                        <div class="metric-label">Calling</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.metric("📞 Calling", calling_count)
                 
                 with col4:
-                    st.markdown(f"""
-                    <div class="metric-container">
-                        <div class="metric-value metric-completed">{completed_count}</div>
-                        <div class="metric-label">Completed</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.metric("✅ Completed", completed_count)
                 
                 with col5:
-                    st.markdown(f"""
-                    <div class="metric-container">
-                        <div class="metric-value metric-failed">{failed_count}</div>
-                        <div class="metric-label">Failed</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.metric("❌ Failed", failed_count)
                 
                 st.markdown("---")
                 
@@ -765,24 +709,35 @@ def main():
             
             # Contact List (Collapsible)
             with st.expander("👥 **Contact List**", expanded=True):
-                # Contact cards using native Streamlit components
+                # Table header
+                col1, col2, col3, col4, col5 = st.columns([0.5, 1, 2, 2, 1])
+                with col1:
+                    st.markdown("**Select**")
+                with col2:
+                    st.markdown("**Status**")
+                with col3:
+                    st.markdown("**Name**")
+                with col4:
+                    st.markdown("**Phone**")
+                with col5:
+                    st.markdown("**Action**")
+                
+                st.markdown("---")
+                
+                # Contact rows using pure Streamlit components
                 for contact in valid_contacts:
                     is_selected = contact['id'] in st.session_state.selected_contacts
                     contact_status = st.session_state.contact_statuses.get(contact['id'], 'waiting')
-                    icon, status_text, status_class = get_status_info(contact_status)
+                    icon, status_text, _ = get_status_info(contact_status)
                     
-                    # Container with custom styling
-                    container_class = "contact-card"
-                    if is_selected:
-                        container_class += " contact-selected"
+                    # Create contact row with conditional styling
                     if contact_status == "calling":
-                        container_class += " contact-calling"
+                        st.markdown("🔄 **Currently Calling...**")
                     elif contact_status == "completed":
-                        container_class += " contact-completed"
+                        st.success("✅ Call Completed", icon="✅")
                     elif contact_status == "failed":
-                        container_class += " contact-failed"
+                        st.error("❌ Call Failed", icon="❌")
                     
-                    # Create contact row
                     col1, col2, col3, col4, col5 = st.columns([0.5, 1, 2, 2, 1])
                     
                     with col1:
@@ -794,25 +749,36 @@ def main():
                             st.session_state.selected_contacts.discard(contact['id'])
                     
                     with col2:
-                        # Status indicator
-                        st.markdown(f"""
-                        <div class="status-badge {status_class}">
-                            {icon} {status_text}
-                        </div>
-                        """, unsafe_allow_html=True)
+                        # Status indicator - using plain text with emoji
+                        if contact_status == "calling":
+                            st.markdown("📞 **Calling**")
+                        elif contact_status == "completed":
+                            st.markdown("✅ **Done**")
+                        elif contact_status == "failed":
+                            st.markdown("❌ **Failed**")
+                        else:
+                            st.markdown("⏳ Waiting")
                     
                     with col3:
                         # Contact name
-                        st.markdown(f"**{contact['name']}**")
+                        if contact_status == "calling":
+                            st.markdown(f"**🔥 {contact['name']}**")
+                        else:
+                            st.markdown(f"**{contact['name']}**")
                     
                     with col4:
                         # Phone number
-                        st.markdown(f"`{contact['international']}`")
+                        st.code(contact['international'])
                     
                     with col5:
                         # Individual call button
-                        if st.button("📞", key=f"call_{contact['id']}", 
-                                   disabled=st.session_state.calling_in_progress or contact_status in ['completed', 'failed']):
+                        button_disabled = (st.session_state.calling_in_progress or 
+                                         contact_status in ['completed', 'failed'])
+                        button_label = "📞" if not button_disabled else "✓" if contact_status == "completed" else "✗"
+                        
+                        if st.button(button_label, key=f"call_{contact['id']}", 
+                                   disabled=button_disabled,
+                                   help="Call this contact" if not button_disabled else "Already processed"):
                             if twilio_caller and twilio_caller.is_configured:
                                 # Set status to calling
                                 st.session_state.contact_statuses[contact['id']] = 'calling'
@@ -854,8 +820,11 @@ def main():
                                 time.sleep(1)
                                 st.rerun()
                     
-                    # Add separator
-                    st.markdown("---")
+                    # Visual separator for clarity
+                    if contact_status == "calling":
+                        st.markdown("🔥" * 20)
+                    else:
+                        st.markdown("---")
             
             # Handle sequential calling
             if st.session_state.calling_in_progress and st.session_state.call_queue and not st.session_state.stop_calling:
