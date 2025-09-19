@@ -12,7 +12,7 @@ from PIL import Image
 
 # Set page config
 st.set_page_config(
-    page_title="Tokyo Sanno Law Office - Phone System",
+    page_title="Tokyo Sanno Law Office - Call System",
     page_icon="📞",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -498,41 +498,26 @@ class TwilioCaller:
         try:
             self.client = Client(account_sid, auth_token)
             self.from_number = from_number
-            self.forward_number = forward_number  # Law office operator number
+            self.forward_number = forward_number
             self.is_configured = True
         except Exception as e:
             self.is_configured = False
             self.error = str(e)
     
     def make_call_with_forwarding(self, to_number, person_name=""):
-        """Make an outbound call with forwarding and voicemail"""
+        """Make call - if answered forward to operator, if not leave voicemail"""
         if not self.is_configured:
             return False, "Twilio not configured properly"
         
-        # TwiML for advanced call with forwarding and voicemail
+        # Simple TwiML: Say forwarding message then forward
         twiml = f'''
         <Response>
-            <!-- Initial greeting with name -->
-            <Say language="ja-JP">こんにちは、東京山王法律事務所です。{person_name}様でいらっしゃいますか？</Say>
-            
-            <!-- Wait for response and gather input -->
-            <Gather numDigits="1" timeout="10" action="/voice_response">
-                <Say language="ja-JP">はいの場合は1を、いいえの場合は2を押してください。</Say>
-            </Gather>
-            
-            <!-- Default flow if no input - assume they want to talk -->
-            <Say language="ja-JP">オペレータに繋ぎますので少しお待ちください。</Say>
-            
-            <!-- Forward to operator -->
-            <Dial timeout="30" record="record-from-answer" action="/call_status">
+            <Say language="ja-JP">お繋ぎしますのでお待ちください</Say>
+            <Dial timeout="30" record="record-from-answer">
                 <Number>{self.forward_number}</Number>
             </Dial>
-            
-            <!-- If operator doesn't answer, leave voicemail -->
-            <Say language="ja-JP">申し訳ございません。オペレータが対応できません。</Say>
+            <!-- If no answer or forwarding fails, leave voicemail -->
             <Say language="ja-JP">こちらは法律事務所です。大切な用件がございますので、折り返しお電話ください。</Say>
-            <Record maxLength="60" playBeep="true" action="/recording_complete"/>
-            <Say language="ja-JP">メッセージをありがとうございました。失礼いたします。</Say>
         </Response>
         '''
         
@@ -541,28 +526,10 @@ class TwilioCaller:
                 twiml=twiml,
                 to=to_number,
                 from_=self.from_number,
-                record=True,
                 machine_detection="Enable",
                 machine_detection_timeout=30
             )
-            return True, f"Advanced call to {person_name} initiated. SID: {call.sid}"
-        except TwilioException as e:
-            return False, f"Twilio error: {str(e)}"
-        except Exception as e:
-            return False, f"Error: {str(e)}"
-    
-    def make_simple_call(self, to_number, message="こんにちは、東京山王法律事務所です。"):
-        """Make a simple outbound call"""
-        if not self.is_configured:
-            return False, "Twilio not configured properly"
-        
-        try:
-            call = self.client.calls.create(
-                twiml=f'<Response><Say language="ja-JP">{message}</Say></Response>',
-                to=to_number,
-                from_=self.from_number
-            )
-            return True, f"Call initiated successfully. SID: {call.sid}"
+            return True, f"Call to {person_name} initiated. SID: {call.sid}"
         except TwilioException as e:
             return False, f"Twilio error: {str(e)}"
         except Exception as e:
@@ -582,13 +549,24 @@ def main():
                 </div>
             </div>
             <div class="header-title">
-                <h1>Professional Phone System</h1>
-                <p>Advanced Japanese Phone Number Processing & Calling</p>
+                <h1>Phone Call System</h1>
+                <p>Upload Excel → Check Numbers → Call One by One → Forward to Operator</p>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
+    # Logo upload instruction
+    with st.expander("📋 **Add Your Logo** (Click to expand)", expanded=False):
+        st.markdown("""
+        **To add your Tokyo Sanno Law Office logo:**
+        
+        1. **Download your logo** from: `https://github.com/ANBI-git/law-office-bot/blob/main/logo.png`
+        2. **Save it as `logo.png`** in the same folder as this app
+        3. **Restart the app** - your logo will automatically appear in the header
+        
+        The app will automatically detect and resize your logo to fit perfectly in the header design.
+        """)
 
     # Sidebar for configuration
     with st.sidebar:
@@ -619,34 +597,25 @@ def main():
             account_sid = auth_token = from_number = None
         
         st.markdown("### 📋 **Call Settings**")
-        custom_message = st.text_area(
-            "Call Message (Simple Call)", 
-            value="こんにちは、東京山王法律事務所です。重要なご連絡がございます。",
-            help="Message for simple calls (Advanced calls use predefined script)",
-            height=80
-        )
         
-        st.markdown("### 🎯 **Call Features**")
+        st.markdown("### 📞 **Call Settings**")
+        st.markdown(f"**Operator Number:** `{operator_number}`")
+        
+        st.markdown("### 🎯 **Call Flow**")
         st.markdown("""
-        **📞 Advanced Call (Recommended):**
-        - Personalized greeting with name
-        - Call forwarding to operator (+817044448888)
-        - Automatic voicemail if no answer
-        - Professional Japanese script
-        
-        **📱 Simple Call:**
-        - Basic message delivery
-        - Custom message content
-        - No forwarding or voicemail
+        **1. Upload Excel** → Check numbers  
+        **2. Call people one by one**  
+        **3. If person picks up:**  
+        ・Say: "お繋ぎしますのでお待ちください"  
+        ・Forward to operator  
+        **4. If no answer/voicemail:**  
+        ・Leave message: "こちらは法律事務所です..."
         """)
-        
-        st.markdown("### ⚙️ **Settings**")
-        st.info(f"**Operator Number:** +817044448888")
         
         operator_number = st.text_input(
             "Operator Forward Number",
             value="+817044448888",
-            help="Number to forward calls to when customer picks up"
+            help="Number to forward calls to"
         )
 
     # Main content area
@@ -658,8 +627,8 @@ def main():
         # Upload Section
         st.markdown("""
         <div class="feature-card">
-            <h3 class="card-title">📂 Upload Phone Numbers</h3>
-            <p class="card-subtitle">Upload an Excel file containing Japanese phone numbers for processing and calling</p>
+            <h3 class="card-title">📂 Step 1: Upload Excel Sheet</h3>
+            <p class="card-subtitle">Upload your Excel file with Name and Phone_Number columns for validation and calling</p>
         </div>
         """, unsafe_allow_html=True)
         
@@ -690,21 +659,17 @@ def main():
             | **Landline** | `03-1234-5678` | `+81312345678` | 10 digits |
             | **No Hyphens** | `0312345678` | `+81312345678` | 10 digits |
             
-            **🤖 Advanced Call Features:**
+            **🤖 Call Flow:**
             
-            **📞 Advanced Call (Recommended):**
-            - Personalized Japanese greeting with name
-            - Interactive menu (press 1 for yes, 2 for no)
-            - Automatic forwarding to operator (+817044448888)
-            - Professional voicemail: "こちらは法律事務所です。大切な用件がございますので、折り返しお電話ください。"
-            - Call recording and machine detection
+            **📞 Simple & Effective Process:**
+            - Upload Excel with Name + Phone_Number columns
+            - System validates and formats all numbers
+            - Click individual "Call" buttons for each person
+            - **If person picks up:** "お繋ぎしますのでお待ちください" → Forward to operator
+            - **If no answer/voicemail:** "こちらは法律事務所です。大切な用件がございますので、折り返しお電話ください。"
+            - All calls are recorded and tracked
             
-            **📱 Simple Call:**
-            - Basic message delivery
-            - Custom message content
-            - No interactive features
-            
-            **✨ Smart Processing:** Automatically handles Excel formatting issues, validates Japanese numbers, and adds personalized greetings.
+            **✨ Smart Processing:** Automatically handles Excel formatting issues, validates Japanese numbers, and provides one-click calling.
             """)
         
         if uploaded_file is not None:
@@ -806,8 +771,8 @@ def main():
         # Calling Section
         st.markdown("""
         <div class="feature-card">
-            <h3 class="card-title">📞 Make Calls</h3>
-            <p class="card-subtitle">Place calls to processed numbers using Twilio integration</p>
+            <h3 class="card-title">📞 Step 2: Call People</h3>
+            <p class="card-subtitle">Call each person individually - forwards to operator if answered, leaves voicemail if not</p>
         </div>
         """, unsafe_allow_html=True)
         
@@ -817,115 +782,86 @@ def main():
             if valid_numbers and twilio_caller and twilio_caller.is_configured:
                 st.success(f"📋 **{len(valid_numbers)} valid numbers** ready for calling")
                 
-                # Call options
-                call_type = st.radio(
-                    "**Call Type:**",
-                    ["Advanced Call (With Forwarding)", "Simple Call (Message Only)"],
-                    help="Choose call type: Advanced includes forwarding and voicemail"
-                )
+                # Simple call interface - one by one
+                st.markdown("##### 📞 Call People One by One")
                 
-                call_option = st.radio(
-                    "**Call Option:**",
-                    ["Single Call", "Bulk Call (All Numbers)"],
-                    help="Choose to call individual numbers or all valid numbers"
-                )
+                # Show all valid numbers with individual call buttons
+                for i, number_data in enumerate(valid_numbers):
+                    with st.container():
+                        col1, col2, col3 = st.columns([2, 2, 1])
+                        
+                        with col1:
+                            st.markdown(f"**{number_data['Name']}**")
+                        
+                        with col2:
+                            st.markdown(f"`{number_data['International']}`")
+                        
+                        with col3:
+                            call_button_key = f"call_{i}"
+                            if st.button("📞 Call", key=call_button_key, type="primary"):
+                                with st.spinner(f"📞 Calling {number_data['Name']}..."):
+                                    success, message = twilio_caller.make_call_with_forwarding(
+                                        number_data['International'],
+                                        number_data['Name']
+                                    )
+                                
+                                if success:
+                                    st.success(f"✅ **{message}**")
+                                    # Add to call history
+                                    st.session_state.call_history.append({
+                                        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                        'name': number_data['Name'],
+                                        'number': number_data['International'],
+                                        'status': 'Success',
+                                        'message': message
+                                    })
+                                    st.rerun()  # Refresh to show updated history
+                                else:
+                                    st.error(f"❌ **{message}**")
+                                    st.session_state.call_history.append({
+                                        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                        'name': number_data['Name'],
+                                        'number': number_data['International'],
+                                        'status': 'Failed',
+                                        'message': message
+                                    })
+                        
+                        st.markdown("---")
                 
-                if call_option == "Single Call":
-                    # Single call interface
-                    st.markdown("##### 📱 Single Call")
-                    selected_number_data = st.selectbox(
-                        "Select number to call:",
-                        valid_numbers,
-                        format_func=lambda x: f"**{x['Name']}** - {x['International']} (Original: {x['Original']})"
-                    )
-                    
-                    if call_type == "Advanced Call (With Forwarding)":
-                        call_button_text = "📞 **Make Advanced Call**"
-                        call_description = f"• Personalized greeting for **{selected_number_data['Name']}**\n• Forward to operator if answered\n• Voicemail if no answer"
-                    else:
-                        call_button_text = "📞 **Make Simple Call**"
-                        call_description = f"• Simple message to **{selected_number_data['Name']}**\n• Custom message content"
-                    
-                    st.markdown(f"**Call Details:**\n{call_description}")
-                    
-                    if st.button(call_button_text, type="primary", use_container_width=True):
-                        with st.spinner("📞 Making call..."):
-                            if call_type == "Advanced Call (With Forwarding)":
-                                success, message = twilio_caller.make_call_with_forwarding(
-                                    selected_number_data['International'],
-                                    selected_number_data['Name']
-                                )
-                            else:
-                                success, message = twilio_caller.make_simple_call(
-                                    selected_number_data['International'],
-                                    custom_message
-                                )
-                        
-                        if success:
-                            st.success(f"✅ **{message}**")
-                            # Add to call history
-                            st.session_state.call_history.append({
-                                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                                'name': selected_number_data['Name'],
-                                'number': selected_number_data['International'],
-                                'type': call_type,
-                                'status': 'Success',
-                                'message': message
-                            })
-                        else:
-                            st.error(f"❌ **{message}**")
-                            st.session_state.call_history.append({
-                                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                                'name': selected_number_data['Name'],
-                                'number': selected_number_data['International'],
-                                'type': call_type,
-                                'status': 'Failed',
-                                'message': message
-                            })
+                # Optional bulk call
+                st.markdown("##### 📞 Or Call All at Once")
+                delay_seconds = st.slider("**Delay between calls (seconds):**", 1, 10, 5)
                 
-                else:
-                    # Bulk call interface
-                    st.markdown("##### 📞 Bulk Calling")
-                    st.warning(f"⚠️ This will make **{len(valid_numbers)} {call_type.lower()}s**. Please ensure you have sufficient Twilio credits.")
+                if st.button("📞 **Call All Numbers**", type="secondary", use_container_width=True):
+                    progress_bar = st.progress(0)
+                    status_placeholder = st.empty()
                     
-                    delay_seconds = st.slider("**Delay between calls (seconds):**", 1, 10, 3)
+                    for i, number_data in enumerate(valid_numbers):
+                        status_placeholder.info(f"📞 Calling **{number_data['Name']}** at **{number_data['International']}**...")
+                        
+                        success, message = twilio_caller.make_call_with_forwarding(
+                            number_data['International'],
+                            number_data['Name']
+                        )
+                        
+                        # Update call history
+                        st.session_state.call_history.append({
+                            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                            'name': number_data['Name'],
+                            'number': number_data['International'],
+                            'status': 'Success' if success else 'Failed',
+                            'message': message
+                        })
+                        
+                        # Update progress
+                        progress_bar.progress((i + 1) / len(valid_numbers))
+                        
+                        # Delay between calls
+                        if i < len(valid_numbers) - 1:
+                            time.sleep(delay_seconds)
                     
-                    if st.button("📞 **Start Bulk Calling**", type="primary", use_container_width=True):
-                        progress_bar = st.progress(0)
-                        status_placeholder = st.empty()
-                        
-                        for i, number_data in enumerate(valid_numbers):
-                            status_placeholder.info(f"📞 Calling **{number_data['Name']}** at **{number_data['International']}**...")
-                            
-                            if call_type == "Advanced Call (With Forwarding)":
-                                success, message = twilio_caller.make_call_with_forwarding(
-                                    number_data['International'],
-                                    number_data['Name']
-                                )
-                            else:
-                                success, message = twilio_caller.make_simple_call(
-                                    number_data['International'],
-                                    custom_message
-                                )
-                            
-                            # Update call history
-                            st.session_state.call_history.append({
-                                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                                'name': number_data['Name'],
-                                'number': number_data['International'],
-                                'type': call_type,
-                                'status': 'Success' if success else 'Failed',
-                                'message': message
-                            })
-                            
-                            # Update progress
-                            progress_bar.progress((i + 1) / len(valid_numbers))
-                            
-                            # Delay between calls
-                            if i < len(valid_numbers) - 1:
-                                time.sleep(delay_seconds)
-                        
-                        status_placeholder.success("✅ **Bulk calling completed!**")
+                    status_placeholder.success("✅ **All calls completed!**")
+                    st.rerun()  # Refresh to show updated history
             else:
                 if not valid_numbers:
                     st.info("📋 **No valid numbers to call.** Please upload and process phone numbers first.")
@@ -938,8 +874,8 @@ def main():
     if st.session_state.call_history:
         st.markdown("""
         <div class="feature-card">
-            <h3 class="card-title">📋 Call History</h3>
-            <p class="card-subtitle">Complete history of all calls made through the system</p>
+            <h3 class="card-title">📋 Step 3: Call History & Results</h3>
+            <p class="card-subtitle">Complete history of all calls made with success/failure status</p>
         </div>
         """, unsafe_allow_html=True)
         
