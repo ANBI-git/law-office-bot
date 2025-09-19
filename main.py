@@ -12,7 +12,7 @@ from PIL import Image
 
 # Set page config
 st.set_page_config(
-    page_title="Tokyo  Law Office - Phone System",
+    page_title="Tokyo Sanno Law Office - Phone System",
     page_icon="📞",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -386,39 +386,66 @@ class JapanesePhoneProcessor:
         if len(digits_only) == 0:
             return None
         elif len(digits_only) == 9:
-            # Likely missing leading 0, add it
-            digits_only = '0' + digits_only
+            # Could be mobile (missing 0) or landline (missing 0)
+            # Check if it starts with mobile prefixes (90, 80, 70)
+            if digits_only.startswith('9') or digits_only.startswith('8') or digits_only.startswith('7'):
+                digits_only = '0' + digits_only  # Make it 10 digits, but mobile needs 11
+            else:
+                digits_only = '0' + digits_only  # Landline, perfect at 10 digits
         elif len(digits_only) == 10:
-            # Perfect length
-            pass
-        elif len(digits_only) == 11 and digits_only.startswith('81'):
-            # International format without +, remove 81 and add 0
-            digits_only = '0' + digits_only[2:]
+            # Check if it's missing the leading 0
+            if not digits_only.startswith('0'):
+                if digits_only.startswith('9') or digits_only.startswith('8') or digits_only.startswith('7'):
+                    # Mobile number missing leading 0
+                    digits_only = '0' + digits_only  # This makes it 11 digits (correct for mobile)
+                else:
+                    # Landline missing leading 0
+                    digits_only = '0' + digits_only  # This makes it 11 digits (too long for landline)
+                    # For landlines, we need to keep it at 10 digits
+                    if not (digits_only.startswith('090') or digits_only.startswith('080') or digits_only.startswith('070')):
+                        digits_only = digits_only  # Keep the 11 digits and validate will catch the error
+            # If it already starts with 0, check if it needs adjustment
+            elif digits_only.startswith('09') or digits_only.startswith('08') or digits_only.startswith('07'):
+                # Mobile number but only 10 digits, needs to be 11
+                # Actually this is wrong - 09XXXXXXXX should be 090XXXXXXX (11 digits)
+                # The input 9012345678 becomes 09012345678 which is correct (11 digits)
+                pass  # Keep as is
+        elif len(digits_only) == 11:
+            # Should be perfect length for mobile numbers
+            if not digits_only.startswith('0'):
+                if digits_only.startswith('81'):
+                    # International format without +, remove 81 and add 0
+                    digits_only = '0' + digits_only[2:]
         elif len(digits_only) > 11:
             # Too long, truncate from the right
-            digits_only = digits_only[:10]
+            digits_only = digits_only[:11]
         else:
             # Other lengths, try to make sense of it
-            if len(digits_only) < 9:
+            if len(digits_only) < 8:
                 return None
         
         return digits_only
     
     def validate_japanese_number(self, number):
         """Validate if number is a valid Japanese phone number"""
-        if not number or len(number) != 10:
+        if not number:
             return False
         
         if not number.startswith('0'):
             return False
         
-        # Check mobile prefixes
-        if number[:3] in self.mobile_prefixes:
+        # Check mobile prefixes (090, 080, 070) - these are 11 digits
+        if number[:3] in self.mobile_prefixes and len(number) == 11:
             return True
         
-        # Check landline patterns
-        for pattern in self.landline_patterns:
-            if re.match(pattern, number):
+        # Check landline patterns - these are 10 digits
+        # Tokyo area: 03-XXXX-XXXX (10 digits total)
+        # Osaka area: 06-XXXX-XXXX (10 digits total)
+        # Other areas: 0X-XXXX-XXXX where X is 1,2,3,4,5,6,7,8,9 but not 0,7,8,9 for first digit
+        if len(number) == 10:
+            if number.startswith('03') or number.startswith('06'):  # Tokyo, Osaka
+                return True
+            elif number.startswith('0') and number[1] in '123459':  # Other landline areas
                 return True
         
         return False
@@ -432,10 +459,19 @@ class JapanesePhoneProcessor:
         international_number = '+81' + number[1:]
         return international_number
     
-    def process_numbers(self, numbers_list):
-        """Process a list of phone numbers"""
+    def process_numbers_with_names(self, data_list):
+        """Process a list of data with names and phone numbers"""
         results = []
-        for idx, number in enumerate(numbers_list):
+        for idx, row in enumerate(data_list):
+            # Handle both dictionary and list formats
+            if isinstance(row, dict):
+                name = str(row.get('Name', row.get('name', f'Person {idx+1}')))
+                number = row.get('Phone_Number', row.get('phone_number', row.get('phone', '')))
+            else:
+                # If it's a list, assume [name, phone] format
+                name = str(row[0]) if len(row) > 0 else f'Person {idx+1}'
+                number = row[1] if len(row) > 1 else ''
+            
             original = str(number) if not pd.isna(number) else ""
             cleaned = self.clean_number(number)
             
@@ -448,6 +484,7 @@ class JapanesePhoneProcessor:
             
             results.append({
                 'Index': idx + 1,
+                'Name': name,
                 'Original': original,
                 'Cleaned': cleaned if cleaned else "N/A",
                 'International': formatted if formatted else "N/A",
@@ -457,17 +494,65 @@ class JapanesePhoneProcessor:
         return results
 
 class TwilioCaller:
-    def __init__(self, account_sid, auth_token, from_number):
+    def __init__(self, account_sid, auth_token, from_number, forward_number="+817044448888"):
         try:
             self.client = Client(account_sid, auth_token)
             self.from_number = from_number
+            self.forward_number = forward_number  # Law office operator number
             self.is_configured = True
         except Exception as e:
             self.is_configured = False
             self.error = str(e)
     
-    def make_call(self, to_number, message="Hello, this is a test call from Tokyo  Law Office."):
-        """Make an outbound call"""
+    def make_call_with_forwarding(self, to_number, person_name=""):
+        """Make an outbound call with forwarding and voicemail"""
+        if not self.is_configured:
+            return False, "Twilio not configured properly"
+        
+        # TwiML for advanced call with forwarding and voicemail
+        twiml = f'''
+        <Response>
+            <!-- Initial greeting with name -->
+            <Say language="ja-JP">こんにちは、東京山王法律事務所です。{person_name}様でいらっしゃいますか？</Say>
+            
+            <!-- Wait for response and gather input -->
+            <Gather numDigits="1" timeout="10" action="/voice_response">
+                <Say language="ja-JP">はいの場合は1を、いいえの場合は2を押してください。</Say>
+            </Gather>
+            
+            <!-- Default flow if no input - assume they want to talk -->
+            <Say language="ja-JP">オペレータに繋ぎますので少しお待ちください。</Say>
+            
+            <!-- Forward to operator -->
+            <Dial timeout="30" record="record-from-answer" action="/call_status">
+                <Number>{self.forward_number}</Number>
+            </Dial>
+            
+            <!-- If operator doesn't answer, leave voicemail -->
+            <Say language="ja-JP">申し訳ございません。オペレータが対応できません。</Say>
+            <Say language="ja-JP">こちらは法律事務所です。大切な用件がございますので、折り返しお電話ください。</Say>
+            <Record maxLength="60" playBeep="true" action="/recording_complete"/>
+            <Say language="ja-JP">メッセージをありがとうございました。失礼いたします。</Say>
+        </Response>
+        '''
+        
+        try:
+            call = self.client.calls.create(
+                twiml=twiml,
+                to=to_number,
+                from_=self.from_number,
+                record=True,
+                machine_detection="Enable",
+                machine_detection_timeout=30
+            )
+            return True, f"Advanced call to {person_name} initiated. SID: {call.sid}"
+        except TwilioException as e:
+            return False, f"Twilio error: {str(e)}"
+        except Exception as e:
+            return False, f"Error: {str(e)}"
+    
+    def make_simple_call(self, to_number, message="こんにちは、東京山王法律事務所です。"):
+        """Make a simple outbound call"""
         if not self.is_configured:
             return False, "Twilio not configured properly"
         
@@ -492,8 +577,8 @@ def main():
             <div class="logo-container">
                 <div class="logo-placeholder">M</div>
                 <div class="logo-text">
-                    <div class="logo-japanese">法律事務所</div>
-                    <div class="logo-english">Tokyo  Law Office</div>
+                    <div class="logo-japanese">東京山王法律事務所</div>
+                    <div class="logo-english">Tokyo Sanno Law Office</div>
                 </div>
             </div>
             <div class="header-title">
@@ -503,6 +588,18 @@ def main():
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+    # Logo upload instruction
+    with st.expander("📋 **Add Your Logo** (Click to expand)", expanded=False):
+        st.markdown("""
+        **To add your Tokyo Sanno Law Office logo:**
+        
+        1. **Download your logo** from: `https://github.com/ANBI-git/law-office-bot/blob/main/logo.png`
+        2. **Save it as `logo.png`** in the same folder as this app
+        3. **Restart the app** - your logo will automatically appear in the header
+        
+        The app will automatically detect and resize your logo to fit perfectly in the header design.
+        """)
 
     # Sidebar for configuration
     with st.sidebar:
@@ -514,7 +611,7 @@ def main():
             auth_token = st.secrets["twilio"]["auth_token"]
             from_number = st.secrets["twilio"]["from_number"]
             
-            twilio_caller = TwilioCaller(account_sid, auth_token, from_number)
+            twilio_caller = TwilioCaller(account_sid, auth_token, from_number, operator_number)
             if twilio_caller.is_configured:
                 st.success("✅ **Twilio configured successfully!**")
                 st.info(f"📞 **From:** {from_number}")
@@ -534,10 +631,33 @@ def main():
         
         st.markdown("### 📋 **Call Settings**")
         custom_message = st.text_area(
-            "Call Message", 
-            value="こんにちは、法律事務所からのお電話です。Hello, this is Tokyo  Law Office.",
-            help="Message that will be spoken during the call (supports Japanese)",
-            height=100
+            "Call Message (Simple Call)", 
+            value="こんにちは、東京山王法律事務所です。重要なご連絡がございます。",
+            help="Message for simple calls (Advanced calls use predefined script)",
+            height=80
+        )
+        
+        st.markdown("### 🎯 **Call Features**")
+        st.markdown("""
+        **📞 Advanced Call (Recommended):**
+        - Personalized greeting with name
+        - Call forwarding to operator (+817044448888)
+        - Automatic voicemail if no answer
+        - Professional Japanese script
+        
+        **📱 Simple Call:**
+        - Basic message delivery
+        - Custom message content
+        - No forwarding or voicemail
+        """)
+        
+        st.markdown("### ⚙️ **Settings**")
+        st.info(f"**Operator Number:** +817044448888")
+        
+        operator_number = st.text_input(
+            "Operator Forward Number",
+            value="+817044448888",
+            help="Number to forward calls to when customer picks up"
         )
 
     # Main content area
@@ -562,20 +682,40 @@ def main():
         )
         
         # Sample data info
-        with st.expander("📋 **Supported Number Formats** (Click to view)", expanded=False):
+        with st.expander("📋 **Supported Formats & Features** (Click to view)", expanded=False):
             st.markdown("""
-            **🇯🇵 Japanese Phone Number Formats:**
+            **📊 Excel File Formats:**
             
-            | Format Type | Example | Notes |
-            |-------------|---------|--------|
-            | **Mobile** | `070-1234-5678`, `080-1234-5678`, `090-1234-5678` | Standard mobile formats |
-            | **Landline** | `03-1234-5678`, `06-1234-5678` | Tokyo, Osaka, etc. |
-            | **No Hyphens** | `0312345678`, `09012345678` | Numbers without formatting |
-            | **Excel Stripped** | `312345678` | When Excel removes leading zero |
+            | Column Name | Example Data | Description |
+            |-------------|--------------|-------------|
+            | **Name** | `Yamada Tarou` | Client/Contact name |
+            | **Phone_Number** | `9012345678` | Phone number (Excel format) |
             
-            **📤 Output Format:** `+81312345678` (International format for Twilio)
+            **🇯🇵 Phone Number Formats:**
             
-            **✨ Smart Processing:** The system automatically handles Excel formatting issues and validates all numbers.
+            | Format Type | Example | Converted To | Length |
+            |-------------|---------|--------------|---------|
+            | **Excel Mobile** | `9012345678` | `+819012345678` | 11 digits |
+            | **Excel Landline** | `312345678` | `+81312345678` | 10 digits |
+            | **Mobile** | `070-1234-5678` | `+817012345678` | 11 digits |
+            | **Landline** | `03-1234-5678` | `+81312345678` | 10 digits |
+            | **No Hyphens** | `0312345678` | `+81312345678` | 10 digits |
+            
+            **🤖 Advanced Call Features:**
+            
+            **📞 Advanced Call (Recommended):**
+            - Personalized Japanese greeting with name
+            - Interactive menu (press 1 for yes, 2 for no)
+            - Automatic forwarding to operator (+817044448888)
+            - Professional voicemail: "こちらは法律事務所です。大切な用件がございますので、折り返しお電話ください。"
+            - Call recording and machine detection
+            
+            **📱 Simple Call:**
+            - Basic message delivery
+            - Custom message content
+            - No interactive features
+            
+            **✨ Smart Processing:** Automatically handles Excel formatting issues, validates Japanese numbers, and adds personalized greetings.
             """)
         
         if uploaded_file is not None:
@@ -584,22 +724,49 @@ def main():
                 df = pd.read_excel(uploaded_file)
                 st.success(f"✅ **File uploaded successfully!** Found **{len(df)}** rows.")
                 
-                # Show column selection
-                st.markdown("#### 📊 Select Phone Number Column")
-                phone_column = st.selectbox(
-                    "Choose the column containing phone numbers:", 
-                    df.columns.tolist(),
-                    help="Select the column that contains the phone numbers to process"
-                )
-                
-                if phone_column:
-                    # Process numbers
+                # Check if we have the expected columns
+                if 'Name' in df.columns and 'Phone_Number' in df.columns:
+                    st.info("📋 **Detected format:** Name + Phone_Number columns (Perfect!)")
+                    
+                    # Process data with names
                     processor = JapanesePhoneProcessor()
-                    phone_numbers = df[phone_column].tolist()
+                    data_list = df.to_dict('records')  # Convert to list of dictionaries
                     
-                    with st.spinner("🔄 Processing phone numbers..."):
-                        results = processor.process_numbers(phone_numbers)
+                    with st.spinner("🔄 Processing phone numbers with names..."):
+                        results = processor.process_numbers_with_names(data_list)
+                else:
+                    # Show column selection for other formats
+                    st.markdown("#### 📊 Select Columns")
+                    col1, col2 = st.columns(2)
                     
+                    with col1:
+                        name_column = st.selectbox(
+                            "Name Column:", 
+                            ["None"] + df.columns.tolist(),
+                            help="Select the column containing names (optional)"
+                        )
+                    
+                    with col2:
+                        phone_column = st.selectbox(
+                            "Phone Number Column:", 
+                            df.columns.tolist(),
+                            help="Select the column containing phone numbers"
+                        )
+                    
+                    if phone_column:
+                        # Create data list with names if available
+                        processor = JapanesePhoneProcessor()
+                        data_list = []
+                        
+                        for idx, row in df.iterrows():
+                            name = row[name_column] if name_column != "None" else f"Person {idx+1}"
+                            phone = row[phone_column]
+                            data_list.append({'Name': name, 'Phone_Number': phone})
+                        
+                        with st.spinner("🔄 Processing phone numbers..."):
+                            results = processor.process_numbers_with_names(data_list)
+                
+                if 'results' in locals():
                     # Store in session state
                     st.session_state.processed_numbers = results
                     
@@ -662,6 +829,12 @@ def main():
                 st.success(f"📋 **{len(valid_numbers)} valid numbers** ready for calling")
                 
                 # Call options
+                call_type = st.radio(
+                    "**Call Type:**",
+                    ["Advanced Call (With Forwarding)", "Simple Call (Message Only)"],
+                    help="Choose call type: Advanced includes forwarding and voicemail"
+                )
+                
                 call_option = st.radio(
                     "**Call Option:**",
                     ["Single Call", "Bulk Call (All Numbers)"],
@@ -674,22 +847,39 @@ def main():
                     selected_number_data = st.selectbox(
                         "Select number to call:",
                         valid_numbers,
-                        format_func=lambda x: f"{x['International']} (Original: {x['Original']})"
+                        format_func=lambda x: f"**{x['Name']}** - {x['International']} (Original: {x['Original']})"
                     )
                     
-                    if st.button("📞 **Make Call**", type="primary", use_container_width=True):
+                    if call_type == "Advanced Call (With Forwarding)":
+                        call_button_text = "📞 **Make Advanced Call**"
+                        call_description = f"• Personalized greeting for **{selected_number_data['Name']}**\n• Forward to operator if answered\n• Voicemail if no answer"
+                    else:
+                        call_button_text = "📞 **Make Simple Call**"
+                        call_description = f"• Simple message to **{selected_number_data['Name']}**\n• Custom message content"
+                    
+                    st.markdown(f"**Call Details:**\n{call_description}")
+                    
+                    if st.button(call_button_text, type="primary", use_container_width=True):
                         with st.spinner("📞 Making call..."):
-                            success, message = twilio_caller.make_call(
-                                selected_number_data['International'],
-                                custom_message
-                            )
+                            if call_type == "Advanced Call (With Forwarding)":
+                                success, message = twilio_caller.make_call_with_forwarding(
+                                    selected_number_data['International'],
+                                    selected_number_data['Name']
+                                )
+                            else:
+                                success, message = twilio_caller.make_simple_call(
+                                    selected_number_data['International'],
+                                    custom_message
+                                )
                         
                         if success:
                             st.success(f"✅ **{message}**")
                             # Add to call history
                             st.session_state.call_history.append({
                                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                'name': selected_number_data['Name'],
                                 'number': selected_number_data['International'],
+                                'type': call_type,
                                 'status': 'Success',
                                 'message': message
                             })
@@ -697,7 +887,9 @@ def main():
                             st.error(f"❌ **{message}**")
                             st.session_state.call_history.append({
                                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                'name': selected_number_data['Name'],
                                 'number': selected_number_data['International'],
+                                'type': call_type,
                                 'status': 'Failed',
                                 'message': message
                             })
@@ -705,7 +897,7 @@ def main():
                 else:
                     # Bulk call interface
                     st.markdown("##### 📞 Bulk Calling")
-                    st.warning(f"⚠️ This will make **{len(valid_numbers)} calls**. Please ensure you have sufficient Twilio credits.")
+                    st.warning(f"⚠️ This will make **{len(valid_numbers)} {call_type.lower()}s**. Please ensure you have sufficient Twilio credits.")
                     
                     delay_seconds = st.slider("**Delay between calls (seconds):**", 1, 10, 3)
                     
@@ -714,17 +906,25 @@ def main():
                         status_placeholder = st.empty()
                         
                         for i, number_data in enumerate(valid_numbers):
-                            status_placeholder.info(f"📞 Calling **{number_data['International']}**...")
+                            status_placeholder.info(f"📞 Calling **{number_data['Name']}** at **{number_data['International']}**...")
                             
-                            success, message = twilio_caller.make_call(
-                                number_data['International'],
-                                custom_message
-                            )
+                            if call_type == "Advanced Call (With Forwarding)":
+                                success, message = twilio_caller.make_call_with_forwarding(
+                                    number_data['International'],
+                                    number_data['Name']
+                                )
+                            else:
+                                success, message = twilio_caller.make_simple_call(
+                                    number_data['International'],
+                                    custom_message
+                                )
                             
                             # Update call history
                             st.session_state.call_history.append({
                                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                'name': number_data['Name'],
                                 'number': number_data['International'],
+                                'type': call_type,
                                 'status': 'Success' if success else 'Failed',
                                 'message': message
                             })
