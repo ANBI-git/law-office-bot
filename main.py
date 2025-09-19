@@ -12,7 +12,7 @@ from PIL import Image
 
 # Set page config
 st.set_page_config(
-    page_title="Tokyo Sanno Law Office - Phone System",
+    page_title="Tokyo  Law Office - Phone System",
     page_icon="📞",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -466,7 +466,7 @@ class TwilioCaller:
             self.is_configured = False
             self.error = str(e)
     
-    def make_call(self, to_number, message="Hello, this is a test call from Tokyo Sanno Law Office."):
+    def make_call(self, to_number, message="Hello, this is a test call from Tokyo  Law Office."):
         """Make an outbound call"""
         if not self.is_configured:
             return False, "Twilio not configured properly"
@@ -493,7 +493,7 @@ def main():
                 <div class="logo-placeholder">M</div>
                 <div class="logo-text">
                     <div class="logo-japanese">法律事務所</div>
-                    <div class="logo-english">Tokyo Sanno Law Office</div>
+                    <div class="logo-english">Tokyo  Law Office</div>
                 </div>
             </div>
             <div class="header-title">
@@ -507,7 +507,7 @@ def main():
     # Logo upload instruction
     with st.expander("📋 **Add Your Logo** (Click to expand)", expanded=False):
         st.markdown("""
-        **To add your Tokyo Sanno Law Office logo:**
+        **To add your Tokyo  Law Office logo:**
         
         1. **Download your logo** from: `https://github.com/ANBI-git/law-office-bot/blob/main/logo.png`
         2. **Save it as `logo.png`** in the same folder as this app
@@ -547,7 +547,7 @@ def main():
         st.markdown("### 📋 **Call Settings**")
         custom_message = st.text_area(
             "Call Message", 
-            value="こんにちは、法律事務所からのお電話です。Hello, this is Tokyo Sanno Law Office.",
+            value="こんにちは、法律事務所からのお電話です。Hello, this is Tokyo  Law Office.",
             help="Message that will be spoken during the call (supports Japanese)",
             height=100
         )
