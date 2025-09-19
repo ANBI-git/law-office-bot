@@ -574,9 +574,9 @@ def main():
         
         # Load Twilio credentials from secrets
         try:
-            account_sid = st.secrets["twilio"]["account_sid"]
-            auth_token = st.secrets["twilio"]["auth_token"]
-            from_number = st.secrets["twilio"]["from_number"]
+            account_sid = st.secrets["account_sid"]
+            auth_token = st.secrets["auth_token"]
+            from_number = st.secrets["from_number"]
             
             twilio_caller = TwilioCaller(account_sid, auth_token, from_number, operator_number)
             if twilio_caller.is_configured:
