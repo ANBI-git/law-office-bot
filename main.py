@@ -556,17 +556,6 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-    # Logo upload instruction
-    with st.expander("📋 **Add Your Logo** (Click to expand)", expanded=False):
-        st.markdown("""
-        **To add your Tokyo Sanno Law Office logo:**
-        
-        1. **Download your logo** from: `https://github.com/ANBI-git/law-office-bot/blob/main/logo.png`
-        2. **Save it as `logo.png`** in the same folder as this app
-        3. **Restart the app** - your logo will automatically appear in the header
-        
-        The app will automatically detect and resize your logo to fit perfectly in the header design.
-        """)
 
     # Sidebar for configuration
     with st.sidebar:
