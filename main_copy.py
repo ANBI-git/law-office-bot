@@ -12,6 +12,8 @@ from PIL import Image
 import gspread
 from google.oauth2.service_account import Credentials
 import json
+import textwrap  # add this
+
 
 # Set page config
 st.set_page_config(
@@ -549,20 +551,22 @@ def render_contact_card(contact, is_selected, contact_status, twilio_caller=None
     
     with col2:
         # Render the contact card HTML
-        html_content = f"""
+        html_content = textwrap.dedent(f"""
         <div class="{card_class}">
-            <div class="contact-avatar">{initials}</div>
-            <div class="contact-info">
-                <div class="contact-name">{contact['name']}</div>
-                <div class="contact-phone">{contact['international']}</div>
-            </div>
-            <div class="contact-status">
-                <div class="status-dot {status_class}"></div>
-                <span>{status_text}</span>
-            </div>
+          <div class="contact-avatar">{initials}</div>
+          <div class="contact-info">
+            <div class="contact-name">{contact['name']}</div>
+            <div class="contact-phone">{contact['international']}</div>
+          </div>
+          <div class="contact-status">
+            <div class="status-dot {status_class}"></div>
+            <span>{status_text}</span>
+          </div>
         </div>
-        """
+        """)
         st.markdown(html_content, unsafe_allow_html=True)
+        
+
         
         # Add call button if needed
         if contact_status == "waiting" and not st.session_state.calling_in_progress:
@@ -573,23 +577,26 @@ def render_contact_card(contact, is_selected, contact_status, twilio_caller=None
 
 def main():
     # Custom Header
-    st.markdown("""
+
+    st.markdown(textwrap.dedent("""
     <div class="custom-header">
-        <div class="header-content">
-            <div class="logo-container">
-                <div class="logo-placeholder">M</div>
-                <div class="logo-text">
-                    <div class="logo-japanese">東京山王法律事務所</div>
-                    <div class="logo-english">Tokyo Sanno Law Office</div>
-                </div>
-            </div>
-            <div class="header-title">
-                <h1>Advanced Call System</h1>
-                <p>Upload → Select → Call → Track Results</p>
-            </div>
+      <div class="header-content">
+        <div class="logo-container">
+          <div class="logo-placeholder">M</div>
+          <div class="logo-text">
+            <div class="logo-japanese">東京山王法律事務所</div>
+            <div class="logo-english">Tokyo Sanno Law Office</div>
+          </div>
         </div>
+        <div class="header-title">
+          <h1>Advanced Call System</h1>
+          <p>Upload → Select → Call → Track Results</p>
+        </div>
+      </div>
     </div>
-    """, unsafe_allow_html=True)
+    """), unsafe_allow_html=True)
+        
+
 
     # Sidebar Configuration
     with st.sidebar:
