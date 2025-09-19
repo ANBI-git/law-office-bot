@@ -492,7 +492,7 @@ def main():
             <div class="logo-container">
                 <div class="logo-placeholder">M</div>
                 <div class="logo-text">
-                    <div class="logo-japanese">東京山王法律事務所</div>
+                    <div class="logo-japanese">法律事務所</div>
                     <div class="logo-english">Tokyo Sanno Law Office</div>
                 </div>
             </div>
@@ -547,7 +547,7 @@ def main():
         st.markdown("### 📋 **Call Settings**")
         custom_message = st.text_area(
             "Call Message", 
-            value="こんにちは、東京山王法律事務所からのお電話です。Hello, this is Tokyo Sanno Law Office.",
+            value="こんにちは、法律事務所からのお電話です。Hello, this is Tokyo Sanno Law Office.",
             help="Message that will be spoken during the call (supports Japanese)",
             height=100
         )
