@@ -900,16 +900,15 @@
 # if __name__ == "__main__":
 #     main()
 
-
 import streamlit as st
 import pandas as pd
 import re
-from twilio.rest import Client
-from twilio.base.exceptions import TwilioException
 import time
 from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
+from twilio.rest import Client
+from twilio.base.exceptions import TwilioException
 import json
 import textwrap
 
@@ -1005,14 +1004,16 @@ st.markdown(textwrap.dedent("""
 # =========================
 # Session state
 # =========================
-if 'processed_numbers' not in st.session_state: st.session_state.processed_numbers = []
-if 'call_history' not in st.session_state: st.session_state.call_history = []
-if 'selected_contacts' not in st.session_state: st.session_state.selected_contacts = set()
-if 'calling_in_progress' not in st.session_state: st.session_state.calling_in_progress = False
-if 'current_calling_index' not in st.session_state: st.session_state.current_calling_index = None
-if 'stop_calling' not in st.session_state: st.session_state.stop_calling = False
-if 'call_queue' not in st.session_state: st.session_state.call_queue = []
-if 'contact_statuses' not in st.session_state: st.session_state.contact_statuses = {}
+ss = st.session_state
+ss.setdefault('processed_numbers', [])
+ss.setdefault('call_history', [])
+ss.setdefault('selected_contacts', set())
+ss.setdefault('calling_in_progress', False)
+ss.setdefault('current_calling_id', None)
+ss.setdefault('stop_after_current', False)  # <-- cancel behavior: finish current, stop next
+ss.setdefault('call_queue', [])
+ss.setdefault('contact_statuses', {})
+ss.setdefault('sheets_logger', None)
 
 # =========================
 # Helpers
@@ -1022,32 +1023,30 @@ class JapanesePhoneProcessor:
         self.mobile_prefixes = ['070', '080', '090']
 
     def clean_number(self, number):
-        """Normalize potential JP numbers to domestic 0-leading forms."""
         if pd.isna(number): return None
-        digits_only = re.sub(r'[^\d]', '', str(number).strip())
-        if len(digits_only) == 0: return None
-
-        if len(digits_only) == 9:
-            digits_only = '0' + digits_only
-        elif len(digits_only) == 10:
-            if not digits_only.startswith('0'):
-                digits_only = '0' + digits_only
-        elif len(digits_only) == 11:
-            if digits_only.startswith('81'):
-                digits_only = '0' + digits_only[2:]
-        elif len(digits_only) > 11:
-            digits_only = digits_only[:11]
+        digits = re.sub(r'[^\d]', '', str(number).strip())
+        if not digits: return None
+        if len(digits) == 9:
+            digits = '0' + digits
+        elif len(digits) == 10:
+            if not digits.startswith('0'):
+                digits = '0' + digits
+        elif len(digits) == 11:
+            if digits.startswith('81'):  # 81xxxxxxxxx => 0xxxxxxxxx
+                digits = '0' + digits[2:]
+        elif len(digits) > 11:
+            digits = digits[:11]
         else:
-            if len(digits_only) < 8:
+            if len(digits) < 8:
                 return None
-        return digits_only
+        return digits
 
     def validate_japanese_number(self, number):
         if not number or not number.startswith('0'): return False
         if number[:3] in self.mobile_prefixes and len(number) == 11: return True
         if len(number) == 10:
             if number.startswith('03') or number.startswith('06'): return True
-            if number.startswith('0') and number[1] in '123459': return True
+            if number[1] in '123459': return True
         return False
 
     def format_for_twilio(self, number):
@@ -1066,15 +1065,17 @@ class JapanesePhoneProcessor:
             original = str(number) if not pd.isna(number) else ""
             cleaned = self.clean_number(number)
             if cleaned and self.validate_japanese_number(cleaned):
-                formatted = self.format_for_twilio(cleaned)
+                intl = self.format_for_twilio(cleaned)
                 status = "valid"
             else:
-                formatted = None
+                intl = None
                 status = "invalid"
             results.append({
-                'id': idx, 'name': name, 'original': original,
+                'id': idx,
+                'name': name,
+                'original': original,
                 'cleaned': cleaned if cleaned else "N/A",
-                'international': formatted if formatted else "N/A",
+                'international': intl if intl else "N/A",
                 'status': status
             })
         return results
@@ -1090,41 +1091,58 @@ class TwilioCaller:
             self.is_configured = False
             self.error = str(e)
 
-    def make_call_with_forwarding(self, to_number, person_name=""):
+    def twiml_for_call(self):
+        # Forward immediately to operator; if operator bridge fails/times out, play voicemail message.
+        return f"""
+<Response>
+  <Say language="ja-JP">お繋ぎしますのでお待ちください</Say>
+  <Dial timeout="30" record="record-from-answer">
+    <Number>{self.forward_number}</Number>
+  </Dial>
+  <Say language="ja-JP">
+    こちらは東京山王法律事務所です。大切な用件がございます。
+    お手数ですが、折り返しお電話ください。
+  </Say>
+</Response>
+""".strip()
+
+    def make_call(self, to_number, person_name=""):
         if not self.is_configured:
-            return False, "Twilio not configured properly"
-        twiml = f'''
-        <Response>
-            <Say language="ja-JP">お繋ぎしますのでお待ちください</Say>
-            <Dial timeout="30" record="record-from-answer">
-                <Number>{self.forward_number}</Number>
-            </Dial>
-            <Say language="ja-JP">こちらは法律事務所です。大切な用件がございますので、折り返しお電話ください。</Say>
-        </Response>
-        '''
+            return False, "Twilio not configured", None
         try:
             call = self.client.calls.create(
-                twiml=twiml, to=to_number, from_=self.from_number,
-                machine_detection="Enable", machine_detection_timeout=30
+                twiml=self.twiml_for_call(),
+                to=to_number,
+                from_=self.from_number,
+                machine_detection="Enable",              # enable AMD (best-effort without webhook)
+                machine_detection_timeout=30
             )
-            return True, f"Call to {person_name} initiated. SID: {call.sid}"
+            return True, f"Call to {person_name} initiated. SID: {call.sid}", call.sid
         except TwilioException as e:
-            return False, f"Twilio error: {str(e)}"
+            return False, f"Twilio error: {str(e)}", None
         except Exception as e:
-            return False, f"Error: {str(e)}"
+            return False, f"Error: {str(e)}", None
+
+    def poll_status(self, sid):
+        """Fetch call status from Twilio."""
+        try:
+            call = self.client.calls(sid).fetch()
+            # Common statuses: queued, ringing, in-progress, completed, busy, failed, no-answer, canceled
+            return True, call.status
+        except Exception as e:
+            return False, str(e)
 
 class GoogleSheetsLogger:
     """
-    Robust logger:
-    - Uses Drive + Spreadsheets scopes
-    - Can target a specific worksheet (auto-create if missing)
-    - Ensures header row if sheet is empty
-    - Exposes service account email to help you share the Sheet
+    - Opens/creates spreadsheet named 'Call System Logs - Tokyo Law Office'
+    - Uses 'Sheet1' (auto-creates if missing)
+    - Ensures header row
     """
-    def __init__(self, credentials_json, spreadsheet_url, worksheet_name=None):
+    def __init__(self, credentials_json, explicit_url=None, title_fallback="Call System Logs - Tokyo Law Office", worksheet_name="Sheet1"):
         self.is_configured = False
         self.error = None
         self.sa_email = None
+        self.worksheet_name = worksheet_name
 
         try:
             creds_dict = json.loads(credentials_json)
@@ -1134,28 +1152,38 @@ class GoogleSheetsLogger:
             ]
             self.creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
             self.sa_email = self.creds.service_account_email
-
             self.client = gspread.authorize(self.creds)
-            self.spreadsheet = self.client.open_by_url(spreadsheet_url)
 
-            if worksheet_name:
+            if explicit_url:
                 try:
-                    self.sheet = self.spreadsheet.worksheet(worksheet_name)
-                except gspread.exceptions.WorksheetNotFound:
-                    self.sheet = self.spreadsheet.add_worksheet(title=worksheet_name, rows=1000, cols=20)
+                    self.spreadsheet = self.client.open_by_url(explicit_url)
+                except Exception:
+                    # fallback to title if URL failed
+                    self.spreadsheet = self._open_or_create_by_title(title_fallback)
             else:
-                self.sheet = self.spreadsheet.sheet1
+                self.spreadsheet = self._open_or_create_by_title(title_fallback)
 
-            # Ensure header
-            existing = self.sheet.get_all_values()
-            if len(existing) == 0:
+            try:
+                self.sheet = self.spreadsheet.worksheet(worksheet_name)
+            except gspread.exceptions.WorksheetNotFound:
+                self.sheet = self.spreadsheet.add_worksheet(title=worksheet_name, rows=1000, cols=20)
+
+            if len(self.sheet.get_all_values()) == 0:
                 self.sheet.append_row(["timestamp", "name", "phone", "status", "message"], value_input_option="RAW")
 
             self.is_configured = True
         except Exception as e:
             self.error = str(e)
 
-    def log_call_result(self, name, phone, status, message, timestamp):
+    def _open_or_create_by_title(self, title):
+        try:
+            return self.client.open(title)
+        except gspread.SpreadsheetNotFound:
+            sh = self.client.create(title)
+            # Make sure your service account has access; for external viewing, share manually if needed
+            return sh
+
+    def log(self, name, phone, status, message, timestamp):
         if not self.is_configured:
             return False, "Sheets not configured"
         try:
@@ -1164,49 +1192,50 @@ class GoogleSheetsLogger:
         except Exception as e:
             return False, str(e)
 
-    def test_write(self):
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        return self.log_call_result("TEST_WRITE", "N/A", "OK", "Connectivity check", now)
-
 def get_initials(name):
     words = name.split()
-    if len(words) >= 2:
-        return words[0][0].upper() + words[1][0].upper()
-    elif len(words) == 1:
-        return words[0][:2].upper()
+    if len(words) >= 2: return words[0][0].upper() + words[1][0].upper()
+    if len(words) == 1: return words[0][:2].upper()
     return "??"
 
 def get_status_info(status):
     status_map = {
         "waiting": ("⏳", "Waiting", "status-waiting"),
         "calling": ("📞", "Calling...", "status-calling"),
+        "in-progress": ("📞", "In call...", "status-calling"),
         "completed": ("✅", "Completed", "status-completed"),
-        "failed": ("❌", "Failed", "status-failed")
+        "failed": ("❌", "Failed", "status-failed"),
+        "no-answer": ("❌", "No Answer", "status-failed"),
+        "busy": ("❌", "Busy", "status-failed"),
+        "canceled": ("❌", "Canceled", "status-failed"),
+        "ringing": ("📳", "Ringing...", "status-calling"),
+        "queued": ("⏳", "Queued", "status-waiting"),
     }
-    return status_map.get(status, ("⏳", "Waiting", "status-waiting"))
+    return status_map.get(status, ("⏳", status.title(), "status-waiting"))
 
-def render_contact_card(contact, is_selected, contact_status, twilio_caller=None):
+def render_contact_card(contact, is_selected, contact_status):
     _, status_text, status_class = get_status_info(contact_status)
     initials = get_initials(contact['name'])
 
     card_class = "contact-card"
-    if contact_status == "calling": card_class += " contact-calling"
+    if contact_status in ("calling", "ringing", "queued", "in-progress"): card_class += " contact-calling"
     elif contact_status == "completed": card_class += " contact-completed"
-    elif contact_status == "failed": card_class += " contact-failed"
+    elif contact_status in ("failed", "no-answer", "busy", "canceled"): card_class += " contact-failed"
     elif is_selected: card_class += " contact-selected"
 
     checkbox_key = f"select_{contact['id']}"
     col1, col2 = st.columns([0.05, 0.95])
 
     with col1:
-        new_selected = st.checkbox("", key=checkbox_key, value=is_selected, label_visibility="collapsed")
+        new_selected = st.checkbox("", key=checkbox_key, value=is_selected, label_visibility="collapsed",
+                                   disabled=ss.calling_in_progress)
         if new_selected != is_selected:
-            if new_selected: st.session_state.selected_contacts.add(contact['id'])
-            else: st.session_state.selected_contacts.discard(contact['id'])
+            if new_selected: ss.selected_contacts.add(contact['id'])
+            else: ss.selected_contacts.discard(contact['id'])
             st.rerun()
 
     with col2:
-        html_content = textwrap.dedent(f"""
+        html = textwrap.dedent(f"""
         <div class="{card_class}">
             <div class="contact-avatar">{initials}</div>
             <div class="contact-info">
@@ -1219,19 +1248,12 @@ def render_contact_card(contact, is_selected, contact_status, twilio_caller=None
             </div>
         </div>
         """)
-        st.markdown(html_content, unsafe_allow_html=True)
-
-        if contact_status == "waiting" and not st.session_state.calling_in_progress:
-            if st.button("📞 Call", key=f"call_{contact['id']}", use_container_width=False):
-                if twilio_caller and twilio_caller.is_configured:
-                    st.session_state.contact_statuses[contact['id']] = 'calling'
-                    st.rerun()
+        st.markdown(html, unsafe_allow_html=True)
 
 # =========================
 # App UI
 # =========================
 def main():
-    # Header
     st.markdown(textwrap.dedent("""
     <div class="custom-header">
       <div class="header-content">
@@ -1254,12 +1276,7 @@ def main():
     with st.sidebar:
         st.markdown("### ⚙️ **Configuration**")
 
-        operator_number = st.text_input(
-            "Operator Forward Number",
-            value="+817044448888",
-            help="Number to forward calls to"
-        )
-
+        operator_number = st.text_input("Operator Forward Number", value="+817044448888")
         # Twilio secrets
         try:
             if "twilio" in st.secrets:
@@ -1270,110 +1287,89 @@ def main():
                 account_sid = st.secrets["account_sid"]
                 auth_token  = st.secrets["auth_token"]
                 from_number = st.secrets["from_number"]
-            st.success("✅ **Twilio configured successfully!**")
-            st.info(f"📞 **From:** {from_number}")
-            twilio_configured = True
-        except KeyError as e:
-            st.error(f"❌ **Missing Twilio secret:** {e}")
-            twilio_configured = False
-            account_sid = auth_token = from_number = None
+            twilio_caller = TwilioCaller(account_sid, auth_token, from_number, operator_number)
+            if twilio_caller.is_configured:
+                st.success("✅ Twilio configured")
+                st.info(f"From: {from_number}")
+            else:
+                st.error(f"❌ Twilio error: {twilio_caller.error}")
+                twilio_caller = None
         except Exception as e:
-            st.error(f"❌ **Error loading Twilio secrets:** {e}")
-            twilio_configured = False
-            account_sid = auth_token = from_number = None
+            st.error(f"❌ Twilio secrets error: {e}")
+            twilio_caller = None
 
-        # Google Sheets configuration
-        sheets_logger = None
-        with st.expander("📊 **Spreadsheet Logging**", expanded=False):
-            spreadsheet_url = st.text_input(
-                "Google Sheets URL",
-                help="URL of your Google Sheet for logging results (share it with the service account)"
+        # Google Sheets logger (persistent)
+        with st.expander("📊 Spreadsheet Logging", expanded=False):
+            explicit_url = st.text_input(
+                "Google Sheets URL (optional)",
+                help="If omitted, a sheet named 'Call System Logs - Tokyo Law Office' will be used/created."
             )
-            worksheet_name = st.text_input(
-                "Worksheet (tab) name (optional)",
-                value="",
-                help="Leave blank to use the first tab"
-            )
-            try:
-                if "google_sheets" in st.secrets:
-                    google_creds = st.secrets["google_sheets"]["credentials"]
-                    if spreadsheet_url:
-                        target_worksheet = worksheet_name.strip() or None
-                        sheets_logger = GoogleSheetsLogger(google_creds, spreadsheet_url, target_worksheet)
-                        if sheets_logger.is_configured:
-                            st.success("✅ **Google Sheets connected!**")
-                            if sheets_logger.sa_email:
-                                st.info(f"🔐 Share your Sheet with: **{sheets_logger.sa_email}** (Editor)")
-                            if st.button("🧪 Test write a row"):
-                                ok, err = sheets_logger.test_write()
-                                if ok: st.success("✅ Test row appended. Check the sheet.")
-                                else:  st.error(f"❌ Test write failed: {err}")
-                        else:
-                            st.error(f"❌ **Sheets error:** {sheets_logger.error}")
-                            sheets_logger = None
-                else:
-                    st.info("📝 **Google Sheets credentials not configured in st.secrets['google_sheets']['credentials']**")
-            except Exception as e:
-                st.error(f"❌ **Sheets configuration error:** {e}")
+            if "google_sheets" in st.secrets:
+                google_creds = st.secrets["google_sheets"]["credentials"]
+                if st.button("🔌 Connect Sheets"):
+                    ss.sheets_logger = GoogleSheetsLogger(
+                        google_creds,
+                        explicit_url=explicit_url.strip() or None,
+                        title_fallback="Call System Logs - Tokyo Law Office",
+                        worksheet_name="Sheet1"
+                    )
+                    if ss.sheets_logger.is_configured:
+                        st.success("✅ Sheets connected")
+                        st.info(f"Share the sheet with: **{ss.sheets_logger.sa_email}** (Editor)")
+                    else:
+                        st.error(f"❌ Sheets error: {ss.sheets_logger.error}")
+                if ss.sheets_logger and ss.sheets_logger.is_configured:
+                    if st.button("🧪 Test write"):
+                        ok, err = ss.sheets_logger.log("TEST_WRITE", "N/A", "OK", "Connectivity check",
+                                                       datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+                        st.success("✅ Test row appended") if ok else st.error(f"❌ Test failed: {err}")
+            else:
+                st.info("Add st.secrets['google_sheets']['credentials'] to enable logging")
 
-        # Twilio caller instance
-        twilio_caller = TwilioCaller(account_sid, auth_token, from_number, operator_number) if twilio_configured else None
+        with st.expander("📞 Call Settings", expanded=False):
+            call_delay_between = st.slider("Delay between calls (seconds)", 1, 30, 5)
+        st.caption("Process: 1) Upload → 2) Select → 3) Start → 4) Monitor → 5) Results")
 
-        # Call settings
-        with st.expander("📞 **Call Settings**", expanded=False):
-            call_delay = st.slider("Delay between calls (seconds)", 1, 30, 5)
-
-        st.markdown("### 🎯 **Process**")
-        st.markdown("**1.** Upload Excel file  \n**2.** Select contacts  \n**3.** Start calling  \n**4.** Monitor progress  \n**5.** View results")
-
-    # Step 1: Upload
-    with st.expander("📂 **Step 1: Upload Contact List**", expanded=True):
+    # Upload
+    with st.expander("📂 Step 1: Upload Contact List", expanded=True):
         st.markdown(textwrap.dedent("""
         <div class="upload-hint">
-          <h4>📋 Upload Excel File</h4>
-          <p>Upload your Excel file with <strong>Name</strong> and <strong>Phone_Number</strong> columns</p>
+            <h4>📋 Upload Excel File</h4>
+            <p>Excel with <strong>Name</strong> and <strong>Phone_Number</strong> columns</p>
         </div>
         """), unsafe_allow_html=True)
-
-        uploaded_file = st.file_uploader(
-            "Choose an Excel file", type=['xlsx', 'xls'],
-            help="Upload an Excel file containing phone numbers"
-        )
-
+        uploaded_file = st.file_uploader("Choose an Excel file", type=['xlsx', 'xls'])
         if uploaded_file is not None:
             try:
                 df = pd.read_excel(uploaded_file)
-                st.success(f"✅ **File uploaded successfully!** Found **{len(df)}** rows.")
+                st.success(f"✅ Uploaded {len(df)} rows")
                 if 'Name' in df.columns and 'Phone_Number' in df.columns:
                     processor = JapanesePhoneProcessor()
-                    data_list = df.to_dict('records')
-                    with st.spinner("🔄 Processing phone numbers..."):
-                        results = processor.process_numbers_with_names(data_list)
-                        st.session_state.processed_numbers = results
-                        for contact in results:
-                            if contact['id'] not in st.session_state.contact_statuses:
-                                st.session_state.contact_statuses[contact['id']] = 'waiting'
+                    results = processor.process_numbers_with_names(df.to_dict('records'))
+                    ss.processed_numbers = results
+                    for c in results:
+                        ss.contact_statuses.setdefault(c['id'], 'waiting')
                     valid_count = sum(1 for r in results if r['status'] == 'valid')
-                    invalid_count = sum(1 for r in results if r['status'] == 'invalid')
+                    invalid_count = len(results) - valid_count
                     c1, c2, c3 = st.columns(3)
                     c1.metric("📋 Total", len(results))
                     c2.metric("✅ Valid", valid_count)
                     c3.metric("❌ Invalid", invalid_count)
                 else:
-                    st.warning("⚠️ Please ensure your Excel has 'Name' and 'Phone_Number' columns")
+                    st.warning("⚠️ Columns required: 'Name' and 'Phone_Number'")
             except Exception as e:
-                st.error(f"❌ **Error processing file:** {str(e)}")
+                st.error(f"❌ Error reading file: {e}")
 
-    # Step 2: Manage & Call
-    if st.session_state.processed_numbers:
-        valid_contacts = [c for c in st.session_state.processed_numbers if c['status'] == 'valid']
+    # Manage & Call
+    if ss.processed_numbers:
+        valid_contacts = [c for c in ss.processed_numbers if c['status'] == 'valid']
         if valid_contacts:
-            with st.expander("📞 **Step 2: Select & Call Contacts**", expanded=True):
+            with st.expander("📞 Step 2: Select & Call Contacts", expanded=True):
                 total_contacts = len(valid_contacts)
-                selected_count = len(st.session_state.selected_contacts)
-                completed_count = sum(1 for c in valid_contacts if st.session_state.contact_statuses.get(c['id']) == 'completed')
-                failed_count = sum(1 for c in valid_contacts if st.session_state.contact_statuses.get(c['id']) == 'failed')
-                calling_count = 1 if st.session_state.calling_in_progress else 0
+                selected_count = len(ss.selected_contacts)
+                completed_count = sum(1 for c in valid_contacts if ss.contact_statuses.get(c['id']) == 'completed')
+                failed_count = sum(1 for c in valid_contacts if ss.contact_statuses.get(c['id']) in ('failed','no-answer','busy','canceled'))
+                calling_count = 1 if ss.calling_in_progress else 0
 
                 m1, m2, m3, m4, m5 = st.columns(5)
                 m1.metric("📋 Total Valid", total_contacts)
@@ -1385,158 +1381,162 @@ def main():
                 st.markdown("---")
                 b1, b2, b3, b4, b5 = st.columns(5)
                 with b1:
-                    if st.button("✅ Select All", use_container_width=True):
-                        st.session_state.selected_contacts = set([c['id'] for c in valid_contacts])
+                    if st.button("✅ Select All", use_container_width=True, disabled=ss.calling_in_progress):
+                        ss.selected_contacts = set(c['id'] for c in valid_contacts)
                         st.rerun()
                 with b2:
-                    if st.button("❌ Deselect All", use_container_width=True):
-                        st.session_state.selected_contacts.clear()
+                    if st.button("❌ Deselect All", use_container_width=True, disabled=ss.calling_in_progress):
+                        ss.selected_contacts.clear()
                         st.rerun()
                 with b3:
                     if st.button("📞 Start Calling", type="primary", use_container_width=True,
-                                 disabled=not st.session_state.selected_contacts or st.session_state.calling_in_progress):
-                        if twilio_caller and twilio_caller.is_configured:
-                            st.session_state.call_queue = list(st.session_state.selected_contacts)
-                            st.session_state.calling_in_progress = True
-                            st.session_state.stop_calling = False
-                            st.rerun()
-                        else:
-                            st.error("❌ Twilio not configured properly!")
-                with b4:
-                    if st.button("🛑 Stop Calling", use_container_width=True,
-                                 disabled=not st.session_state.calling_in_progress):
-                        st.session_state.stop_calling = True
-                        st.session_state.calling_in_progress = False
-                        st.session_state.call_queue = []
-                        st.success("🛑 Calling stopped!")
+                                 disabled=(not ss.selected_contacts) or ss.calling_in_progress or not twilio_caller):
+                        ss.call_queue = [c['id'] for c in valid_contacts if c['id'] in ss.selected_contacts]
+                        ss.stop_after_current = False
+                        ss.calling_in_progress = True
                         st.rerun()
+                with b4:
+                    if st.button("⏹️ Cancel After Current", use_container_width=True, disabled=not ss.calling_in_progress):
+                        ss.stop_after_current = True
+                        st.success("Will stop after the current call ends.")
                 with b5:
-                    if st.button("🔄 Reset All", use_container_width=True):
-                        st.session_state.selected_contacts.clear()
-                        st.session_state.calling_in_progress = False
-                        st.session_state.call_queue = []
-                        st.session_state.contact_statuses = {c['id']: 'waiting' for c in valid_contacts}
+                    if st.button("🔄 Reset All", use_container_width=True, disabled=ss.calling_in_progress):
+                        ss.selected_contacts.clear()
+                        ss.call_queue = []
+                        ss.contact_statuses = {c['id']:'waiting' for c in valid_contacts}
+                        ss.call_history = []
+                        ss.stop_after_current = False
+                        ss.calling_in_progress = False
                         st.rerun()
 
-                if st.session_state.calling_in_progress and st.session_state.call_queue:
-                    total_to_call = sum(1 for c in valid_contacts if c['id'] in st.session_state.selected_contacts)
-                    remaining = len(st.session_state.call_queue)
-                    progress = (total_to_call - remaining) / total_to_call if total_to_call > 0 else 0
-                    st.markdown(textwrap.dedent(f"""
+                # Progress bar
+                if ss.calling_in_progress and ss.call_queue:
+                    total_to_call = len([c for c in valid_contacts if c['id'] in ss.selected_contacts])
+                    remaining = len(ss.call_queue)
+                    progress = (total_to_call - remaining) / total_to_call if total_to_call else 0
+                    st.markdown(f"""
                     <div class="progress-container">
                         <div class="progress-bar" style="width: {progress * 100}%"></div>
                     </div>
-                    """), unsafe_allow_html=True)
+                    """, unsafe_allow_html=True)
                     st.info(f"📞 Progress: {total_to_call - remaining} / {total_to_call} calls completed")
 
             # Contact list
-            with st.expander("👥 **Contact List**", expanded=True):
-                st.markdown("### Contacts")
+            with st.expander("👥 Contact List", expanded=True):
                 for contact in valid_contacts:
-                    is_selected = contact['id'] in st.session_state.selected_contacts
-                    contact_status = st.session_state.contact_statuses.get(contact['id'], 'waiting')
-                    render_contact_card(contact, is_selected, contact_status, twilio_caller)
+                    is_selected = contact['id'] in ss.selected_contacts
+                    status = ss.contact_statuses.get(contact['id'], 'waiting')
+                    render_contact_card(contact, is_selected, status)
 
-            # Sequential calling + logging
-            if st.session_state.calling_in_progress and st.session_state.call_queue and not st.session_state.stop_calling:
-                if twilio_caller and twilio_caller.is_configured:
-                    current_id = st.session_state.call_queue[0]
-                    current_contact = next((c for c in valid_contacts if c['id'] == current_id), None)
-                    if current_contact:
-                        st.session_state.contact_statuses[current_id] = 'calling'
-                        st.session_state.current_calling_index = current_id
-                        with st.spinner(f"📞 Calling {current_contact['name']}..."):
-                            success, message = twilio_caller.make_call_with_forwarding(
-                                current_contact['international'], current_contact['name']
-                            )
-
-                            # Update status
-                            if success:
-                                st.session_state.contact_statuses[current_id] = 'completed'
-                                st.success(f"✅ {current_contact['name']}: Call initiated successfully")
-                            else:
-                                st.session_state.contact_statuses[current_id] = 'failed'
-                                st.error(f"❌ {current_contact['name']}: {message}")
-
-                            # Try to log via the configured logger (from sidebar)
-                            # NOTE: sheets_logger lives in the sidebar scope; re-create if needed based on sidebar inputs
-                            # Reuse the values the user entered (if any)
-                            # We can't fetch them here unless we stored them; simplest is to rely on the existing instance:
-                            try:
-                                # find sheets_logger object from the sidebar using st.session_state? If not present, skip.
-                                # Safer: keep a weak reference via Python closure — but Streamlit reruns; so we check globals()
-                                pass
-                            except Exception:
-                                pass
-
-                            # Local history
-                            st.session_state.call_history.append({
-                                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                                'name': current_contact['name'],
-                                'number': current_contact['international'],
-                                'status': 'Success' if success else 'Failed',
-                                'message': message
-                            })
-
-                            # If you want guaranteed logging, keep the logger object in session_state
-                            # We'll do that now:
-                            if 'sheets_logger_obj' in st.session_state and st.session_state.sheets_logger_obj:
-                                ok, err = st.session_state.sheets_logger_obj.log_call_result(
-                                    current_contact['name'],
-                                    current_contact['international'],
-                                    'Success' if success else 'Failed',
-                                    message,
-                                    datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                                )
-                                if not ok:
-                                    st.warning(f"⚠️ Could not log to Google Sheets: {err}")
-
-                            st.session_state.call_queue.pop(0)
-                            st.session_state.current_calling_index = None
-                            if not st.session_state.call_queue:
-                                st.session_state.calling_in_progress = False
-                                st.success("🎉 All selected calls completed!")
-                            else:
-                                time.sleep(call_delay)
-                            st.rerun()
+            # Sequential calling w/ 3s polling
+            if ss.calling_in_progress and ss.call_queue and not ss.current_calling_id:
+                # Start next call
+                next_id = ss.call_queue[0]
+                current_contact = next((c for c in valid_contacts if c['id'] == next_id), None)
+                if current_contact and twilio_caller:
+                    ss.contact_statuses[next_id] = 'calling'
+                    ss.current_calling_id = next_id
+                    success, message, sid = twilio_caller.make_call(current_contact['international'], current_contact['name'])
+                    call_sid = sid if success else None
+                    if not success:
+                        ss.contact_statuses[next_id] = 'failed'
+                        st.error(f"❌ {current_contact['name']}: {message}")
+                        _log_to_sheet(current_contact, 'Failed', message)
+                        _append_history(current_contact, 'Failed', message)
+                        ss.call_queue.pop(0)
+                        ss.current_calling_id = None
+                        if not ss.call_queue or ss.stop_after_current:
+                            ss.calling_in_progress = False
+                        st.rerun()
+                    else:
+                        st.success(f"✅ {current_contact['name']}: initiated (SID: {call_sid})")
+                        # Poll every 3 seconds until terminal
+                        _poll_until_terminal(twilio_caller, call_sid, current_contact, call_delay_between)
 
     # History
-    if st.session_state.call_history:
-        with st.expander("📋 **Call History & Results**", expanded=False):
-            history_df = pd.DataFrame(st.session_state.call_history)
-            st.dataframe(history_df, use_container_width=True, height=300)
+    if ss.call_history:
+        with st.expander("📋 Call History & Results", expanded=False):
+            history_df = pd.DataFrame(ss.call_history)
+            st.dataframe(history_df, use_container_width=True, height=320)
             c1, c2 = st.columns(2)
             with c1:
-                history_csv = history_df.to_csv(index=False)
-                st.download_button(
-                    label="📥 **Download Call History**",
-                    data=history_csv,
-                    file_name=f"call_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
+                csv = history_df.to_csv(index=False)
+                st.download_button("📥 Download CSV", csv, file_name=f"call_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", mime="text/csv", use_container_width=True)
             with c2:
-                if st.button("🗑️ **Clear History**", use_container_width=True):
-                    st.session_state.call_history = []
+                if st.button("🗑️ Clear History", use_container_width=True, disabled=ss.calling_in_progress):
+                    ss.call_history = []
                     st.rerun()
 
-# ----------------------------------------
-# Keep a Sheets logger in session_state
-# (so the calling loop can always access it)
-# ----------------------------------------
-def ensure_sheets_logger_in_session(spreadsheet_url: str, worksheet_name: str):
-    if "google_sheets" in st.secrets and spreadsheet_url:
-        google_creds = st.secrets["google_sheets"]["credentials"]
-        target_worksheet = worksheet_name.strip() or None
-        logger = GoogleSheetsLogger(google_creds, spreadsheet_url, target_worksheet)
-        if logger.is_configured:
-            st.session_state.sheets_logger_obj = logger
-            return logger
-    return None
+def _append_history(contact, status, message):
+    ss.call_history.append({
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'name': contact['name'],
+        'number': contact['international'],
+        'status': status,
+        'message': message
+    })
 
-# Initialize a placeholder for the logger object.
-if 'sheets_logger_obj' not in st.session_state:
-    st.session_state.sheets_logger_obj = None
+def _log_to_sheet(contact, status, message):
+    if ss.sheets_logger and ss.sheets_logger.is_configured:
+        ok, err = ss.sheets_logger.log(
+            contact['name'],
+            contact['international'],
+            status,
+            message,
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        )
+        if not ok:
+            st.warning(f"⚠️ Google Sheets log failed: {err}")
+
+def _poll_until_terminal(twilio_caller, call_sid, contact, delay_between_calls):
+    """
+    Poll Twilio for this call every 3 seconds.
+    When terminal, log & move to next (unless stop_after_current is True).
+    """
+    terminal = {'completed', 'failed', 'busy', 'no-answer', 'canceled'}
+    ui = st.empty()
+    status_now = "queued"
+
+    while True:
+        ok, status = twilio_caller.poll_status(call_sid)
+        if not ok:
+            ui.error(f"❌ Status fetch error: {status}")
+            status_now = 'failed'
+            break
+
+        status_now = status or 'unknown'
+        ss.contact_statuses[ss.current_calling_id] = status_now
+        ui.info(f"📡 Status: {status_now}")
+        time.sleep(3)
+
+        if status_now in terminal:
+            break
+
+    # finalize
+    human_readable = status_now.title() if status_now else 'Unknown'
+    if status_now == 'completed':
+        st.success(f"✅ {contact['name']}: Call {human_readable}")
+    else:
+        st.error(f"❌ {contact['name']}: {human_readable}")
+
+    _log_to_sheet(contact, 'Success' if status_now == 'completed' else human_readable, f"SID:{call_sid}")
+    _append_history(contact, 'Success' if status_now == 'completed' else human_readable, f"SID:{call_sid}")
+
+    # advance queue
+    if ss.call_queue and ss.call_queue[0] == ss.current_calling_id:
+        ss.call_queue.pop(0)
+    ss.current_calling_id = None
+
+    # Stop after current if requested, or if no more queued
+    if ss.stop_after_current or not ss.call_queue:
+        ss.calling_in_progress = False
+        if ss.stop_after_current:
+            st.info("⏹️ Stopped after current call as requested.")
+        st.rerun()
+    else:
+        # delay between calls, then start the next one
+        time.sleep(delay_between_calls)
+        st.rerun()
 
 if __name__ == "__main__":
     main()
