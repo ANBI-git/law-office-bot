@@ -135,46 +135,145 @@ st.markdown("""
         font-weight: 400;
     }
     
-    /* Modern metric cards */
-    .metric-container {
+    /* Contact card styling */
+    .contact-card {
         background: white;
         border-radius: 12px;
-        padding: 1.5rem;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-        border: 1px solid rgba(0, 0, 0, 0.04);
-        text-align: center;
-        transition: transform 0.2s ease;
+        padding: 1rem;
+        border: 2px solid #e5e7eb;
+        margin-bottom: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        transition: all 0.3s ease;
     }
     
-    .metric-container:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    .contact-card:hover {
+        border-color: #3b82f6;
+        transform: translateX(4px);
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
     }
     
-    .metric-value {
-        font-size: 2rem;
-        font-weight: 700;
-        margin-bottom: 0.5rem;
+    .contact-checkbox {
+        width: 20px;
+        height: 20px;
+        cursor: pointer;
     }
     
-    .metric-label {
-        font-size: 0.85rem;
+    .contact-avatar {
+        width: 45px;
+        height: 45px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: 600;
+        font-size: 16px;
+        flex-shrink: 0;
+    }
+    
+    .contact-info {
+        flex: 1;
+        min-width: 0;
+    }
+    
+    .contact-name {
+        font-weight: 600;
+        color: #1a1a1a;
+        margin-bottom: 4px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    .contact-phone {
         color: #6b7280;
-        font-weight: 500;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+        font-size: 0.9rem;
+        font-family: 'Monaco', 'Courier New', monospace;
     }
     
-    .metric-total { color: #6b7280; }
-    .metric-selected { color: #3b82f6; }
-    .metric-completed { color: #10b981; }
-    .metric-failed { color: #ef4444; }
-    .metric-calling { color: #f59e0b; }
+    .contact-status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        border-radius: 8px;
+        background: #f9fafb;
+    }
     
-    /* Simple animations */
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+    }
+    
+    .status-waiting { background: #6b7280; }
+    .status-calling { 
+        background: #f59e0b; 
+        animation: pulse 2s infinite;
+    }
+    .status-completed { background: #10b981; }
+    .status-failed { background: #ef4444; }
+    
+    .contact-action {
+        margin-left: 1rem;
+    }
+    
+    .call-btn {
+        background: #3b82f6;
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+    
+    .call-btn:hover {
+        background: #2563eb;
+        transform: scale(1.05);
+    }
+    
+    .call-btn:disabled {
+        background: #e5e7eb;
+        color: #9ca3af;
+        cursor: not-allowed;
+    }
+    
+    /* Card states */
+    .contact-selected {
+        border-color: #3b82f6;
+        background: rgba(59, 130, 246, 0.02);
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+    
+    .contact-calling {
+        border-color: #f59e0b;
+        background: rgba(245, 158, 11, 0.05);
+        animation: pulse-border 2s infinite;
+    }
+    
+    .contact-completed {
+        border-color: #10b981;
+        background: rgba(16, 185, 129, 0.02);
+    }
+    
+    .contact-failed {
+        border-color: #ef4444;
+        background: rgba(239, 68, 68, 0.02);
+    }
+    
     @keyframes pulse {
         0%, 100% { opacity: 1; }
-        50% { opacity: 0.7; }
+        50% { opacity: 0.5; }
+    }
+    
+    @keyframes pulse-border {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.01); }
     }
     
     /* Progress bar */
@@ -193,44 +292,6 @@ st.markdown("""
         transition: width 0.3s ease;
     }
     
-    /* Contact card styling for streamlit components */
-    .contact-card {
-        background: white;
-        border-radius: 12px;
-        padding: 1rem;
-        border: 2px solid #e5e7eb;
-        margin-bottom: 0.5rem;
-        transition: all 0.3s ease;
-    }
-    
-    .contact-selected {
-        border-color: #3b82f6;
-        background: rgba(59, 130, 246, 0.02);
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-    }
-    
-    .contact-calling {
-        border-color: #f59e0b;
-        background: rgba(245, 158, 11, 0.05);
-        box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
-        animation: pulse-border 2s infinite;
-    }
-    
-    .contact-completed {
-        border-color: #10b981;
-        background: rgba(16, 185, 129, 0.02);
-    }
-    
-    .contact-failed {
-        border-color: #ef4444;
-        background: rgba(239, 68, 68, 0.02);
-    }
-    
-    @keyframes pulse-border {
-        0%, 100% { transform: scale(1); }
-        50% { transform: scale(1.01); }
-    }
-    
     /* Modern buttons */
     .stButton > button {
         border-radius: 8px !important;
@@ -244,12 +305,6 @@ st.markdown("""
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15) !important;
     }
     
-    /* Expander styling */
-    .streamlit-expanderHeader {
-        font-weight: 600 !important;
-        font-size: 1.1rem !important;
-    }
-    
     /* Upload area */
     .upload-hint {
         background: linear-gradient(135deg, rgba(201, 176, 55, 0.1) 0%, rgba(220, 202, 43, 0.1) 100%);
@@ -258,18 +313,6 @@ st.markdown("""
         padding: 2rem;
         text-align: center;
         margin: 1rem 0;
-    }
-    
-    /* Responsive design */
-    @media (max-width: 768px) {
-        .header-content {
-            flex-direction: column;
-            gap: 1rem;
-        }
-        
-        .custom-header {
-            padding: 1.5rem;
-        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -453,6 +496,15 @@ class GoogleSheetsLogger:
         except Exception as e:
             return False
 
+def get_initials(name):
+    """Get initials from a name for avatar display"""
+    words = name.split()
+    if len(words) >= 2:
+        return words[0][0].upper() + words[1][0].upper()
+    elif len(words) == 1:
+        return words[0][:2].upper()
+    return "??"
+
 def get_status_info(status):
     """Get status display information"""
     status_map = {
@@ -462,6 +514,62 @@ def get_status_info(status):
         "failed": ("❌", "Failed", "status-failed")
     }
     return status_map.get(status, ("⏳", "Waiting", "status-waiting"))
+
+def render_contact_card(contact, is_selected, contact_status, twilio_caller=None, sheets_logger=None):
+    """Render a single contact card with HTML"""
+    icon, status_text, status_class = get_status_info(contact_status)
+    initials = get_initials(contact['name'])
+    
+    # Determine card state class
+    card_class = "contact-card"
+    if contact_status == "calling":
+        card_class += " contact-calling"
+    elif contact_status == "completed":
+        card_class += " contact-completed"
+    elif contact_status == "failed":
+        card_class += " contact-failed"
+    elif is_selected:
+        card_class += " contact-selected"
+    
+    # Create unique checkbox key
+    checkbox_key = f"select_{contact['id']}"
+    
+    # Create columns for checkbox and custom HTML
+    col1, col2 = st.columns([0.05, 0.95])
+    
+    with col1:
+        # Checkbox for selection
+        new_selected = st.checkbox("", key=checkbox_key, value=is_selected, label_visibility="collapsed")
+        if new_selected != is_selected:
+            if new_selected:
+                st.session_state.selected_contacts.add(contact['id'])
+            else:
+                st.session_state.selected_contacts.discard(contact['id'])
+            st.rerun()
+    
+    with col2:
+        # Render the contact card HTML
+        html_content = f"""
+        <div class="{card_class}">
+            <div class="contact-avatar">{initials}</div>
+            <div class="contact-info">
+                <div class="contact-name">{contact['name']}</div>
+                <div class="contact-phone">{contact['international']}</div>
+            </div>
+            <div class="contact-status">
+                <div class="status-dot {status_class}"></div>
+                <span>{status_text}</span>
+            </div>
+        </div>
+        """
+        st.markdown(html_content, unsafe_allow_html=True)
+        
+        # Add call button if needed
+        if contact_status == "waiting" and not st.session_state.calling_in_progress:
+            if st.button("📞 Call", key=f"call_{contact['id']}", use_container_width=False):
+                if twilio_caller and twilio_caller.is_configured:
+                    st.session_state.contact_statuses[contact['id']] = 'calling'
+                    st.rerun()
 
 def main():
     # Custom Header
@@ -520,6 +628,7 @@ def main():
             account_sid = auth_token = from_number = None
         
         # Google Sheets configuration
+        sheets_logger = None
         with st.expander("📊 **Spreadsheet Logging**", expanded=False):
             spreadsheet_url = st.text_input(
                 "Google Sheets URL",
@@ -536,14 +645,10 @@ def main():
                         else:
                             st.error(f"❌ **Sheets error:** {sheets_logger.error}")
                             sheets_logger = None
-                    else:
-                        sheets_logger = None
                 else:
-                    sheets_logger = None
                     st.info("📝 **Google Sheets credentials not configured**")
             except Exception as e:
                 st.error(f"❌ **Sheets configuration error:** {e}")
-                sheets_logger = None
         
         # Create TwilioCaller
         if twilio_configured:
@@ -630,7 +735,7 @@ def main():
                 failed_count = len([c for c in valid_contacts if st.session_state.contact_statuses.get(c['id']) == 'failed'])
                 calling_count = 1 if st.session_state.calling_in_progress else 0
                 
-                # Metrics row - using native Streamlit metrics
+                # Metrics row
                 col1, col2, col3, col4, col5 = st.columns(5)
                 
                 with col1:
@@ -709,122 +814,13 @@ def main():
             
             # Contact List (Collapsible)
             with st.expander("👥 **Contact List**", expanded=True):
-                # Table header
-                col1, col2, col3, col4, col5 = st.columns([0.5, 1, 2, 2, 1])
-                with col1:
-                    st.markdown("**Select**")
-                with col2:
-                    st.markdown("**Status**")
-                with col3:
-                    st.markdown("**Name**")
-                with col4:
-                    st.markdown("**Phone**")
-                with col5:
-                    st.markdown("**Action**")
+                st.markdown("### Contacts")
                 
-                st.markdown("---")
-                
-                # Contact rows using pure Streamlit components
+                # Render each contact card
                 for contact in valid_contacts:
                     is_selected = contact['id'] in st.session_state.selected_contacts
                     contact_status = st.session_state.contact_statuses.get(contact['id'], 'waiting')
-                    icon, status_text, _ = get_status_info(contact_status)
-                    
-                    # Create contact row with conditional styling
-                    if contact_status == "calling":
-                        st.markdown("🔄 **Currently Calling...**")
-                    elif contact_status == "completed":
-                        st.success("✅ Call Completed", icon="✅")
-                    elif contact_status == "failed":
-                        st.error("❌ Call Failed", icon="❌")
-                    
-                    col1, col2, col3, col4, col5 = st.columns([0.5, 1, 2, 2, 1])
-                    
-                    with col1:
-                        # Selection checkbox
-                        checkbox_key = f"select_{contact['id']}"
-                        if st.checkbox("", key=checkbox_key, value=is_selected, label_visibility="collapsed"):
-                            st.session_state.selected_contacts.add(contact['id'])
-                        else:
-                            st.session_state.selected_contacts.discard(contact['id'])
-                    
-                    with col2:
-                        # Status indicator - using plain text with emoji
-                        if contact_status == "calling":
-                            st.markdown("📞 **Calling**")
-                        elif contact_status == "completed":
-                            st.markdown("✅ **Done**")
-                        elif contact_status == "failed":
-                            st.markdown("❌ **Failed**")
-                        else:
-                            st.markdown("⏳ Waiting")
-                    
-                    with col3:
-                        # Contact name
-                        if contact_status == "calling":
-                            st.markdown(f"**🔥 {contact['name']}**")
-                        else:
-                            st.markdown(f"**{contact['name']}**")
-                    
-                    with col4:
-                        # Phone number
-                        st.code(contact['international'])
-                    
-                    with col5:
-                        # Individual call button
-                        button_disabled = (st.session_state.calling_in_progress or 
-                                         contact_status in ['completed', 'failed'])
-                        button_label = "📞" if not button_disabled else "✓" if contact_status == "completed" else "✗"
-                        
-                        if st.button(button_label, key=f"call_{contact['id']}", 
-                                   disabled=button_disabled,
-                                   help="Call this contact" if not button_disabled else "Already processed"):
-                            if twilio_caller and twilio_caller.is_configured:
-                                # Set status to calling
-                                st.session_state.contact_statuses[contact['id']] = 'calling'
-                                st.rerun()
-                                
-                                # Make the call
-                                with st.spinner(f"📞 Calling {contact['name']}..."):
-                                    success, message = twilio_caller.make_call_with_forwarding(
-                                        contact['international'], contact['name']
-                                    )
-                                
-                                # Update status
-                                if success:
-                                    st.session_state.contact_statuses[contact['id']] = 'completed'
-                                    st.success(f"✅ {contact['name']}: Call initiated successfully")
-                                else:
-                                    st.session_state.contact_statuses[contact['id']] = 'failed'
-                                    st.error(f"❌ {contact['name']}: {message}")
-                                
-                                # Log to Google Sheets
-                                if sheets_logger and sheets_logger.is_configured:
-                                    sheets_logger.log_call_result(
-                                        contact['name'],
-                                        contact['international'],
-                                        'Success' if success else 'Failed',
-                                        message,
-                                        datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                                    )
-                                
-                                # Add to call history
-                                st.session_state.call_history.append({
-                                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                                    'name': contact['name'],
-                                    'number': contact['international'],
-                                    'status': 'Success' if success else 'Failed',
-                                    'message': message
-                                })
-                                
-                                time.sleep(1)
-                                st.rerun()
-                    
-                    # Visual separator for clarity
-                    if contact_status == "calling":
-                        st.markdown("🔥" * 20)
-                    else:
-                        st.markdown("---")
+                    render_contact_card(contact, is_selected, contact_status, twilio_caller, sheets_logger)
             
             # Handle sequential calling
             if st.session_state.calling_in_progress and st.session_state.call_queue and not st.session_state.stop_calling:
