@@ -572,31 +572,50 @@ def main():
     with st.sidebar:
         st.markdown("### 🔧 **Twilio Configuration**")
         
-        # Load Twilio credentials from secrets
+        # First, define operator_number
+        st.markdown("### ⚙️ **Settings**")
+        operator_number = st.text_input(
+            "Operator Forward Number",
+            value="+817044448888",
+            help="Number to forward calls to"
+        )
+        
+        # Then load Twilio credentials from secrets
         try:
-            account_sid = st.secrets["twilio"]["account_sid"]
-            auth_token = st.secrets["twilio"]["auth_token"]
-            from_number = st.secrets["twilio"]["from_number"]
-            
-            twilio_caller = TwilioCaller(account_sid, auth_token, from_number, operator_number)
-            if twilio_caller.is_configured:
-                st.success("✅ **Twilio configured successfully!**")
-                st.info(f"📞 **From:** {from_number}")
+            # Try with [twilio] section first
+            if "twilio" in st.secrets:
+                account_sid = st.secrets["twilio"]["account_sid"]
+                auth_token = st.secrets["twilio"]["auth_token"]
+                from_number = st.secrets["twilio"]["from_number"]
             else:
-                st.error(f"❌ **Configuration error:** {twilio_caller.error}")
+                # Try without section (top-level secrets)
+                account_sid = st.secrets["account_sid"]
+                auth_token = st.secrets["auth_token"]
+                from_number = st.secrets["from_number"]
+            
+            st.success("✅ **Twilio configured successfully!**")
+            st.info(f"📞 **From:** {from_number}")
+            twilio_configured = True
                 
         except KeyError as e:
             st.error(f"❌ **Missing Twilio secret:** {e}")
-            st.error("**Please configure Twilio secrets in secrets.toml**")
-            twilio_caller = None
+            st.error("**Please configure Twilio secrets in Streamlit Cloud**")
+            st.info("**Format should be:**\n```\naccount_sid = \"AC...\"\nauth_token = \"...\"\nfrom_number = \"+81...\"\n```")
+            twilio_configured = False
             account_sid = auth_token = from_number = None
             
         except Exception as e:
             st.error(f"❌ **Error loading Twilio secrets:** {e}")
-            twilio_caller = None
+            twilio_configured = False
             account_sid = auth_token = from_number = None
         
-        st.markdown("### 📋 **Call Settings**")
+        # Create TwilioCaller after operator_number is defined
+        if twilio_configured:
+            twilio_caller = TwilioCaller(account_sid, auth_token, from_number, operator_number)
+            if not twilio_caller.is_configured:
+                st.error(f"❌ **Twilio configuration error:** {twilio_caller.error}")
+        else:
+            twilio_caller = None
         
         st.markdown("### 📞 **Call Settings**")
         st.markdown(f"**Operator Number:** `{operator_number}`")
@@ -611,12 +630,6 @@ def main():
         **4. If no answer/voicemail:**  
         ・Leave message: "こちらは法律事務所です..."
         """)
-        
-        operator_number = st.text_input(
-            "Operator Forward Number",
-            value="+817044448888",
-            help="Number to forward calls to"
-        )
 
     # Main content area
     st.markdown('<div class="main-container">', unsafe_allow_html=True)
