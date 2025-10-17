@@ -21,7 +21,25 @@ st.markdown("""
     .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"], 
     [data-testid="stSidebar"], section, div, .main, body {
         background-color: #ffffff !important;
-        color: #000000 !important;
+    }
+    
+    /* Force all text to be dark EXCEPT in special areas */
+    p, span, div, label, h1, h2, h3, h4, h5, h6, a {
+        color: #1a1a1a !important;
+    }
+    
+    /* White text in header */
+    .custom-header h1,
+    .custom-header p,
+    .custom-header span,
+    .custom-header * {
+        color: #ffffff !important;
+    }
+    
+    /* White text in call banner */
+    .current-call-banner,
+    .current-call-banner * {
+        color: #ffffff !important;
     }
     
     /* Sidebar light */
@@ -42,9 +60,20 @@ st.markdown("""
     
     /* Expander styling */
     [data-testid="stExpander"] {
-        background-color: #f8f9fa !important;
-        border: 1px solid #e5e7eb !important;
+        background-color: #ffffff !important;
+        border: 2px solid #e5e7eb !important;
         border-radius: 8px !important;
+    }
+    [data-testid="stExpander"] summary {
+        background-color: #f8f9fa !important;
+        color: #1a1a1a !important;
+        font-weight: 600 !important;
+        padding: 1rem !important;
+    }
+    [data-testid="stExpander"] p, 
+    [data-testid="stExpander"] div,
+    [data-testid="stExpander"] span {
+        color: #1a1a1a !important;
     }
     
     /* Input fields */
@@ -74,7 +103,6 @@ st.markdown("""
         padding: 2.5rem;
         margin: -1rem -1rem 2rem -1rem;
         border-radius: 0 0 20px 20px;
-        color: white;
         text-align: center;
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
@@ -82,13 +110,15 @@ st.markdown("""
         font-size: 2.5rem;
         font-weight: 700;
         margin: 0;
-        color: white !important;
+        color: #ffffff !important;
     }
     .custom-header p {
         font-size: 1rem;
         margin: 0.5rem 0 0 0;
-        opacity: 0.95;
-        color: white !important;
+        color: #ffffff !important;
+    }
+    .custom-header * {
+        color: #ffffff !important;
     }
 
     /* Contact Cards */
@@ -118,7 +148,7 @@ st.markdown("""
         display: flex;
         align-items: center;
         justify-content: center;
-        color: white;
+        color: #ffffff !important;
         font-weight: 600;
         font-size: 18px;
         flex-shrink: 0;
@@ -127,12 +157,12 @@ st.markdown("""
     .contact-info { flex: 1; min-width: 0; }
     .contact-name {
         font-weight: 600;
-        color: #1a1a1a;
+        color: #1a1a1a !important;
         margin-bottom: 4px;
         font-size: 1.1rem;
     }
     .contact-phone {
-        color: #6b7280;
+        color: #6b7280 !important;
         font-size: 0.95rem;
         font-family: 'Monaco', monospace;
     }
@@ -145,6 +175,10 @@ st.markdown("""
         border-radius: 20px;
         background: #f3f4f6;
         font-weight: 500;
+        color: #1a1a1a !important;
+    }
+    .contact-status span {
+        color: #1a1a1a !important;
     }
     .status-dot {
         width: 10px;
@@ -211,7 +245,7 @@ st.markdown("""
     /* Current call banner */
     .current-call-banner {
         background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
-        color: white;
+        color: #ffffff !important;
         padding: 1rem 1.5rem;
         border-radius: 12px;
         margin: 1rem 0;
@@ -220,6 +254,9 @@ st.markdown("""
         text-align: center;
         animation: pulse-border 2s infinite;
         box-shadow: 0 4px 12px rgba(245,158,11,0.3);
+    }
+    .current-call-banner * {
+        color: #ffffff !important;
     }
 
     /* Buttons */
@@ -239,7 +276,22 @@ st.markdown("""
     .stButton > button[kind="primary"] {
         background-color: #3b82f6 !important;
         border-color: #3b82f6 !important;
-        color: white !important;
+        color: #ffffff !important;
+    }
+    
+    /* File uploader */
+    [data-testid="stFileUploader"] {
+        background-color: #ffffff !important;
+    }
+    [data-testid="stFileUploader"] label,
+    [data-testid="stFileUploader"] button {
+        color: #1a1a1a !important;
+    }
+    .stFileUploader > div > button {
+        background-color: #1a1a1a !important;
+        color: #ffffff !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
     }
     
     /* Upload section */
@@ -252,14 +304,28 @@ st.markdown("""
         margin: 1rem 0;
     }
     .upload-section h4 {
-        color: #1e40af;
+        color: #1e40af !important;
         margin-bottom: 0.5rem;
+        font-weight: 600;
+    }
+    .upload-section p {
+        color: #1a1a1a !important;
+        font-size: 0.95rem;
     }
     
     /* Info boxes */
     .stInfo, .stSuccess, .stWarning, .stError {
         background-color: #f8f9fa !important;
         color: #1a1a1a !important;
+    }
+    .stInfo *, .stSuccess *, .stWarning *, .stError * {
+        color: #1a1a1a !important;
+    }
+    
+    /* Make sure download button is visible */
+    [data-testid="stDownloadButton"] button {
+        background-color: #3b82f6 !important;
+        color: #ffffff !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -455,14 +521,14 @@ def render_contact_card(contact, is_selected, contact_status):
     with col2:
         html = f"""
         <div class="{card_class}">
-            <div class="contact-avatar">{initials}</div>
+            <div class="contact-avatar" style="color: #ffffff !important;">{initials}</div>
             <div class="contact-info">
-                <div class="contact-name">{contact['name']}</div>
-                <div class="contact-phone">{contact['international']}</div>
+                <div class="contact-name" style="color: #1a1a1a !important;">{contact['name']}</div>
+                <div class="contact-phone" style="color: #6b7280 !important;">{contact['international']}</div>
             </div>
             <div class="contact-status">
                 <div class="status-dot {status_class}"></div>
-                <span>{status_text}</span>
+                <span style="color: #1a1a1a !important;">{status_text}</span>
             </div>
         </div>
         """
@@ -527,8 +593,8 @@ def poll_call_until_complete(twilio_caller, call_sid, contact, delay_between_cal
 def main():
     st.markdown("""
     <div class="custom-header">
-        <h1>📞 Tokyo Sanno Law Office</h1>
-        <p>Direct Connect Call System</p>
+        <h1 style="color: #ffffff !important;">📞 Tokyo Sanno Law Office</h1>
+        <p style="color: #ffffff !important;">Direct Connect Call System</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -575,8 +641,8 @@ def main():
     with st.expander("📂 Step 1: Upload Contact List", expanded=True):
         st.markdown("""
         <div class="upload-section">
-            <h4>📋 Upload Excel File</h4>
-            <p>File must have <strong>Name</strong> and <strong>Phone_Number</strong> columns</p>
+            <h4 style="color: #1e40af !important;">📋 Upload Excel File</h4>
+            <p style="color: #1a1a1a !important;">File must have <strong>Name</strong> and <strong>Phone_Number</strong> columns</p>
         </div>
         """, unsafe_allow_html=True)
         
@@ -637,8 +703,8 @@ def main():
                         icon, status_text, _ = get_status_display(current_status)
                         
                         st.markdown(f"""
-                        <div class="current-call-banner">
-                            {icon} Currently calling: {current_contact['name']} - {status_text}
+                        <div class="current-call-banner" style="color: #ffffff !important;">
+                            <span style="color: #ffffff !important;">{icon} Currently calling: {current_contact['name']} - {status_text}</span>
                         </div>
                         """, unsafe_allow_html=True)
 
