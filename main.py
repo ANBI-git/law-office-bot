@@ -423,7 +423,7 @@ def main():
 
         operator_number = st.text_input(
             "オペレーター番号（接続先）",
-            value="+817044448888",
+            value="+815017420037",
             help="通話を転送するオペレーターの電話番号（E.164形式）"
         )
 
