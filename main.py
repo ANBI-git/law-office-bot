@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ACCESSIBLE, SCOPED LIGHT THEME CSS
+# ACCESSIBLE, SCOPED LIGHT THEME CSS (includes Browse Files button fix at the end)
 st.markdown("""
 <style>
 /* =========================================================
@@ -65,19 +65,14 @@ header { visibility: hidden; }
   text-align: center;
   box-shadow: var(--shadow-md);
 }
-.custom-header * {
-  color: #ffffff !important;
-}
+.custom-header * { color: #ffffff !important; }
 .custom-header h1 {
   font-size: 2.25rem;
   font-weight: 700;
   margin: 0;
   text-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
-.custom-header p {
-  margin: .5rem 0 0 0;
-  opacity: .95;
-}
+.custom-header p { margin: .5rem 0 0 0; opacity: .95; }
 
 /* Upload section */
 .upload-section {
@@ -220,6 +215,43 @@ div[data-testid="stDataFrame"] thead tr th {
 [data-testid="stDownloadButton"] button {
   background-color: var(--primary) !important; color: #ffffff !important; border-radius: 10px !important; font-weight: 700 !important;
 }
+
+/* ===== File Uploader button — force visible, high-contrast ===== */
+.stFileUploader > div > button,
+[data-testid="stFileUploader"] button {
+  background-color: var(--primary) !important;
+  color: #ffffff !important;
+  border: 2px solid var(--primary) !important;
+  border-radius: 10px !important;
+  font-weight: 700 !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+.stFileUploader > div > button:hover,
+[data-testid="stFileUploader"] button:hover {
+  background-color: var(--primary-600) !important;
+  border-color: var(--primary-600) !important;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md) !important;
+}
+.stFileUploader > div > button:focus,
+[data-testid="stFileUploader"] button:focus {
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.35) !important; /* focus ring */
+}
+.stFileUploader > div > button:disabled,
+[data-testid="stFileUploader"] button:disabled {
+  background-color: #9ca3af !important;
+  border-color: #9ca3af !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+/* Dropzone/labels inside uploader */
+[data-testid="stFileUploader"] label,
+[data-testid="stFileUploader"] span,
+[data-testid="stFileUploader"] p { color: var(--text) !important; }
+/* Ensure the drop area stays light */
+[data-testid="stFileUploader"] { background-color: var(--bg) !important; }
 </style>
 """, unsafe_allow_html=True)
 
