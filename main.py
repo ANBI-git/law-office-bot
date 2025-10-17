@@ -17,28 +17,51 @@ st.set_page_config(
 # AGGRESSIVE LIGHT THEME CSS
 st.markdown("""
 <style>
+    /* ============================================
+       FORCE LIGHT THEME - NUCLEAR OPTION
+       ============================================ */
+    
+    /* Every element is light background by default */
+    *, *::before, *::after {
+        background-color: inherit !important;
+    }
+    
+    /* Main containers */
+    .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"], 
+    [data-testid="stSidebar"], section, .main, body {
+        background-color: #ffffff !important;
+    }
     /* FORCE LIGHT THEME EVERYWHERE */
     .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"], 
     [data-testid="stSidebar"], section, div, .main, body {
         background-color: #ffffff !important;
     }
     
-    /* Force all text to be dark EXCEPT in special areas */
-    p, span, div, label, h1, h2, h3, h4, h5, h6, a {
+    /* Force all text to be dark by default */
+    p, span, div, label, h1, h2, h3, h4, h5, h6, a, td, th, li {
         color: #1a1a1a !important;
     }
     
-    /* White text in header */
+    /* White text ONLY in header */
+    .custom-header,
+    .custom-header *,
     .custom-header h1,
     .custom-header p,
     .custom-header span,
-    .custom-header * {
+    .custom-header div {
+        color: #ffffff !important;
+        background: transparent !important;
+    }
+    
+    /* White text ONLY in call banner */
+    .current-call-banner,
+    .current-call-banner *,
+    .current-call-banner span {
         color: #ffffff !important;
     }
     
-    /* White text in call banner */
-    .current-call-banner,
-    .current-call-banner * {
+    /* White text ONLY in avatars */
+    .contact-avatar {
         color: #ffffff !important;
     }
     
@@ -48,6 +71,14 @@ st.markdown("""
     }
     [data-testid="stSidebar"] * {
         color: #1a1a1a !important;
+        background-color: transparent !important;
+    }
+    [data-testid="stSidebar"] .stMarkdown {
+        background-color: transparent !important;
+    }
+    [data-testid="stSidebar"] label {
+        color: #1a1a1a !important;
+        background-color: transparent !important;
     }
     
     /* Remove dark backgrounds */
@@ -74,6 +105,14 @@ st.markdown("""
     [data-testid="stExpander"] div,
     [data-testid="stExpander"] span {
         color: #1a1a1a !important;
+        background-color: transparent !important;
+    }
+    
+    /* Remove any gray/dark boxes from appearing */
+    .st-emotion-cache-1gulkj5,
+    .st-emotion-cache-nahz7p,
+    .st-emotion-cache-16txtl3 {
+        background-color: transparent !important;
     }
     
     /* Input fields */
@@ -91,6 +130,17 @@ st.markdown("""
     /* Metrics */
     [data-testid="stMetricValue"] {
         color: #1a1a1a !important;
+        background-color: transparent !important;
+    }
+    [data-testid="stMetricLabel"] {
+        color: #6b7280 !important;
+        background-color: transparent !important;
+    }
+    [data-testid="metric-container"] {
+        background-color: #ffffff !important;
+    }
+    [data-testid="metric-container"] * {
+        background-color: transparent !important;
     }
     
     /* Hide Streamlit elements */
@@ -106,19 +156,26 @@ st.markdown("""
         text-align: center;
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
+    .custom-header div {
+        background: transparent !important;
+    }
     .custom-header h1 {
         font-size: 2.5rem;
         font-weight: 700;
         margin: 0;
         color: #ffffff !important;
+        background: transparent !important;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     .custom-header p {
         font-size: 1rem;
         margin: 0.5rem 0 0 0;
         color: #ffffff !important;
+        background: transparent !important;
     }
     .custom-header * {
         color: #ffffff !important;
+        background: transparent !important;
     }
 
     /* Contact Cards */
@@ -320,6 +377,40 @@ st.markdown("""
     }
     .stInfo *, .stSuccess *, .stWarning *, .stError * {
         color: #1a1a1a !important;
+    }
+    
+    /* Dataframe styling - FORCE DARK TEXT */
+    [data-testid="stDataFrame"],
+    [data-testid="stDataFrame"] *,
+    [data-testid="stDataFrame"] div,
+    [data-testid="stDataFrame"] span {
+        background-color: #ffffff !important;
+        color: #1a1a1a !important;
+    }
+    div[data-testid="stDataFrame"] table {
+        background-color: #ffffff !important;
+    }
+    div[data-testid="stDataFrame"] th {
+        background-color: #f3f4f6 !important;
+        color: #1a1a1a !important;
+        font-weight: 600 !important;
+    }
+    div[data-testid="stDataFrame"] td {
+        background-color: #ffffff !important;
+        color: #1a1a1a !important;
+    }
+    div[data-testid="stDataFrame"] thead tr th {
+        background-color: #f3f4f6 !important;
+        color: #1a1a1a !important;
+    }
+    div[data-testid="stDataFrame"] tbody tr td {
+        background-color: #ffffff !important;
+        color: #1a1a1a !important;
+    }
+    
+    /* Dataframe canvas and cells */
+    [data-testid="stDataFrame"] canvas {
+        filter: none !important;
     }
     
     /* Make sure download button is visible */
@@ -593,8 +684,10 @@ def poll_call_until_complete(twilio_caller, call_sid, contact, delay_between_cal
 def main():
     st.markdown("""
     <div class="custom-header">
-        <h1 style="color: #ffffff !important;">📞 Tokyo Sanno Law Office</h1>
-        <p style="color: #ffffff !important;">Direct Connect Call System</p>
+        <div style="background: none !important; padding: 0 !important;">
+            <h1 style="color: #ffffff !important; background: transparent !important;">📞 Tokyo Sanno Law Office</h1>
+            <p style="color: #ffffff !important; background: transparent !important;">Direct Connect Call System</p>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
