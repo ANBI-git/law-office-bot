@@ -1,1056 +1,260 @@
-# import streamlit as st
-# import pandas as pd
-# import re
-# import io
-# from twilio.rest import Client
-# from twilio.base.exceptions import TwilioException
-# import time
-# from datetime import datetime
-# import numpy as np
-# import base64
-# from PIL import Image
-# import gspread
-# from google.oauth2.service_account import Credentials
-# import json
-# import textwrap  # <-- IMPORTANT: used to dedent HTML blocks
-
-# # Set page config
-# st.set_page_config(
-#     page_title="Tokyo Sanno Law Office - Call System",
-#     page_icon="📞",
-#     layout="wide",
-#     initial_sidebar_state="expanded"
-# )
-
-# # Custom CSS for modern design
-# st.markdown(textwrap.dedent("""
-# <style>
-#     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-    
-#     /* Hide default Streamlit elements */
-#     #MainMenu {visibility: hidden;}
-#     footer {visibility: hidden;}
-#     header {visibility: hidden;}
-    
-#     /* Main styling */
-#     .main {
-#         padding-top: 0rem;
-#         font-family: 'Inter', sans-serif;
-#     }
-    
-#     /* Custom header */
-#     .custom-header {
-#         background: linear-gradient(135deg, #0f1419 0%, #1a2332 50%, #2c3e50 100%);
-#         padding: 2rem 3rem;
-#         margin: -1rem -1rem 2rem -1rem;
-#         border-radius: 0 0 20px 20px;
-#         position: relative;
-#         overflow: hidden;
-#     }
-    
-#     .custom-header::before {
-#         content: '';
-#         position: absolute;
-#         top: 0;
-#         left: 0;
-#         right: 0;
-#         bottom: 0;
-#         background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grid" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M 8 0 L 0 0 0 8" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="0.5"/></pattern></defs><rect width="100" height="100" fill="url(%23grid)"/></svg>');
-#     }
-    
-#     .header-content {
-#         position: relative;
-#         z-index: 2;
-#         display: flex;
-#         align-items: center;
-#         gap: 2rem;
-#     }
-    
-#     .logo-container {
-#         display: flex;
-#         align-items: center;
-#         gap: 1rem;
-#         background: rgba(255, 255, 255, 0.95);
-#         padding: 1rem 1.5rem;
-#         border-radius: 15px;
-#         backdrop-filter: blur(10px);
-#         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-#         border: 1px solid rgba(255, 255, 255, 0.2);
-#     }
-    
-#     .logo-placeholder {
-#         width: 60px;
-#         height: 60px;
-#         background: linear-gradient(135deg, #c9b037 0%, #dcca2b 50%, #c9b037 100%);
-#         border-radius: 12px;
-#         display: flex;
-#         align-items: center;
-#         justify-content: center;
-#         font-size: 24px;
-#         font-weight: 300;
-#         color: white;
-#         text-shadow: 0 2px 4px rgba(0,0,0,0.2);
-#     }
-    
-#     .logo-text {
-#         display: flex;
-#         flex-direction: column;
-#     }
-    
-#     .logo-japanese {
-#         font-size: 20px;
-#         font-weight: 600;
-#         color: #1a1a1a;
-#         letter-spacing: 1px;
-#         margin-bottom: 2px;
-#         font-family: 'Hiragino Sans', 'Yu Gothic', sans-serif;
-#     }
-    
-#     .logo-english {
-#         font-size: 12px;
-#         color: #666;
-#         font-weight: 500;
-#         letter-spacing: 0.5px;
-#         text-transform: uppercase;
-#     }
-    
-#     .header-title {
-#         color: white;
-#         margin-left: auto;
-#     }
-    
-#     .header-title h1 {
-#         font-size: 2rem;
-#         font-weight: 700;
-#         margin: 0;
-#         background: linear-gradient(135deg, #fff 0%, #c9b037 100%);
-#         -webkit-background-clip: text;
-#         -webkit-text-fill-color: transparent;
-#         background-clip: text;
-#     }
-    
-#     .header-title p {
-#         font-size: 0.9rem;
-#         margin: 0;
-#         opacity: 0.8;
-#         font-weight: 400;
-#     }
-    
-#     /* Contact card styling */
-#     .contact-card {
-#         background: white;
-#         border-radius: 12px;
-#         padding: 1rem;
-#         border: 2px solid #e5e7eb;
-#         margin-bottom: 0.75rem;
-#         display: flex;
-#         align-items: center;
-#         gap: 1rem;
-#         transition: all 0.3s ease;
-#     }
-    
-#     .contact-card:hover {
-#         border-color: #3b82f6;
-#         transform: translateX(4px);
-#         box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
-#     }
-    
-#     .contact-checkbox {
-#         width: 20px;
-#         height: 20px;
-#         cursor: pointer;
-#     }
-    
-#     .contact-avatar {
-#         width: 45px;
-#         height: 45px;
-#         border-radius: 50%;
-#         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-#         display: flex;
-#         align-items: center;
-#         justify-content: center;
-#         color: white;
-#         font-weight: 600;
-#         font-size: 16px;
-#         flex-shrink: 0;
-#     }
-    
-#     .contact-info {
-#         flex: 1;
-#         min-width: 0;
-#     }
-    
-#     .contact-name {
-#         font-weight: 600;
-#         color: #1a1a1a;
-#         margin-bottom: 4px;
-#         white-space: nowrap;
-#         overflow: hidden;
-#         text-overflow: ellipsis;
-#     }
-    
-#     .contact-phone {
-#         color: #6b7280;
-#         font-size: 0.9rem;
-#         font-family: 'Monaco', 'Courier New', monospace;
-#     }
-    
-#     .contact-status {
-#         display: flex;
-#         align-items: center;
-#         gap: 8px;
-#         padding: 6px 12px;
-#         border-radius: 8px;
-#         background: #f9fafb;
-#     }
-    
-#     .status-dot {
-#         width: 8px;
-#         height: 8px;
-#         border-radius: 50%;
-#     }
-    
-#     .status-waiting { background: #6b7280; }
-#     .status-calling { 
-#         background: #f59e0b; 
-#         animation: pulse 2s infinite;
-#     }
-#     .status-completed { background: #10b981; }
-#     .status-failed { background: #ef4444; }
-    
-#     .contact-action {
-#         margin-left: 1rem;
-#     }
-    
-#     .call-btn {
-#         background: #3b82f6;
-#         color: white;
-#         border: none;
-#         padding: 8px 16px;
-#         border-radius: 8px;
-#         cursor: pointer;
-#         font-weight: 600;
-#         transition: all 0.3s ease;
-#     }
-    
-#     .call-btn:hover {
-#         background: #2563eb;
-#         transform: scale(1.05);
-#     }
-    
-#     .call-btn:disabled {
-#         background: #e5e7eb;
-#         color: #9ca3af;
-#         cursor: not-allowed;
-#     }
-    
-#     /* Card states */
-#     .contact-selected {
-#         border-color: #3b82f6;
-#         background: rgba(59, 130, 246, 0.02);
-#         box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-#     }
-    
-#     .contact-calling {
-#         border-color: #f59e0b;
-#         background: rgba(245, 158, 11, 0.05);
-#         animation: pulse-border 2s infinite;
-#     }
-    
-#     .contact-completed {
-#         border-color: #10b981;
-#         background: rgba(16, 185, 129, 0.02);
-#     }
-    
-#     .contact-failed {
-#         border-color: #ef4444;
-#         background: rgba(239, 68, 68, 0.02);
-#     }
-    
-#     @keyframes pulse {
-#         0%, 100% { opacity: 1; }
-#         50% { opacity: 0.5; }
-#     }
-    
-#     @keyframes pulse-border {
-#         0%, 100% { transform: scale(1); }
-#         50% { transform: scale(1.01); }
-#     }
-    
-#     /* Progress bar */
-#     .progress-container {
-#         background: #f3f4f6;
-#         border-radius: 10px;
-#         height: 8px;
-#         overflow: hidden;
-#         margin: 1rem 0;
-#     }
-    
-#     .progress-bar {
-#         height: 100%;
-#         background: linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%);
-#         border-radius: 10px;
-#         transition: width 0.3s ease;
-#     }
-    
-#     /* Modern buttons */
-#     .stButton > button {
-#         border-radius: 8px !important;
-#         font-weight: 600 !important;
-#         transition: all 0.3s ease !important;
-#         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
-#     }
-    
-#     .stButton > button:hover {
-#         transform: translateY(-1px) !important;
-#         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15) !important;
-#     }
-    
-#     /* Upload area */
-#     .upload-hint {
-#         background: linear-gradient(135deg, rgba(201, 176, 55, 0.1) 0%, rgba(220, 202, 43, 0.1) 100%);
-#         border: 2px dashed #c9b037;
-#         border-radius: 12px;
-#         padding: 2rem;
-#         text-align: center;
-#         margin: 1rem 0;
-#     }
-# </style>
-# """), unsafe_allow_html=True)
-
-# # Initialize session state
-# if 'processed_numbers' not in st.session_state:
-#     st.session_state.processed_numbers = []
-# if 'call_history' not in st.session_state:
-#     st.session_state.call_history = []
-# if 'selected_contacts' not in st.session_state:
-#     st.session_state.selected_contacts = set()
-# if 'calling_in_progress' not in st.session_state:
-#     st.session_state.calling_in_progress = False
-# if 'current_calling_index' not in st.session_state:
-#     st.session_state.current_calling_index = None
-# if 'stop_calling' not in st.session_state:
-#     st.session_state.stop_calling = False
-# if 'call_queue' not in st.session_state:
-#     st.session_state.call_queue = []
-# if 'contact_statuses' not in st.session_state:
-#     st.session_state.contact_statuses = {}
-
-# class JapanesePhoneProcessor:
-#     def __init__(self):
-#         self.mobile_prefixes = ['070', '080', '090']
-#         self.landline_patterns = [
-#             r'0[1-9]\d{8,9}',
-#         ]
-    
-#     def clean_number(self, number):
-#         """Clean and standardize phone number input"""
-#         if pd.isna(number):
-#             return None
-        
-#         number_str = str(number).strip()
-#         digits_only = re.sub(r'[^\d]', '', number_str)
-        
-#         if len(digits_only) == 0:
-#             return None
-#         elif len(digits_only) == 9:
-#             digits_only = '0' + digits_only
-#         elif len(digits_only) == 10:
-#             if not digits_only.startswith('0'):
-#                 digits_only = '0' + digits_only
-#         elif len(digits_only) == 11:
-#             if digits_only.startswith('81'):
-#                 digits_only = '0' + digits_only[2:]
-#             elif not digits_only.startswith('0'):
-#                 pass
-#         elif len(digits_only) > 11:
-#             digits_only = digits_only[:11]
-#         else:
-#             if len(digits_only) < 8:
-#                 return None
-        
-#         return digits_only
-    
-#     def validate_japanese_number(self, number):
-#         """Validate if number is a valid Japanese phone number"""
-#         if not number:
-#             return False
-        
-#         if not number.startswith('0'):
-#             return False
-        
-#         if number[:3] in self.mobile_prefixes and len(number) == 11:
-#             return True
-        
-#         if len(number) == 10:
-#             if number.startswith('03') or number.startswith('06'):
-#                 return True
-#             elif number.startswith('0') and number[1] in '123459':
-#                 return True
-        
-#         return False
-    
-#     def format_for_twilio(self, number):
-#         """Convert Japanese number to international format for Twilio"""
-#         if not self.validate_japanese_number(number):
-#             return None
-        
-#         international_number = '+81' + number[1:]
-#         return international_number
-    
-#     def process_numbers_with_names(self, data_list):
-#         """Process a list of data with names and phone numbers"""
-#         results = []
-#         for idx, row in enumerate(data_list):
-#             if isinstance(row, dict):
-#                 name = str(row.get('Name', row.get('name', f'Person {idx+1}')))
-#                 number = row.get('Phone_Number', row.get('phone_number', row.get('phone', '')))
-#             else:
-#                 name = str(row[0]) if len(row) > 0 else f'Person {idx+1}'
-#                 number = row[1] if len(row) > 1 else ''
-            
-#             original = str(number) if not pd.isna(number) else ""
-#             cleaned = self.clean_number(number)
-            
-#             if cleaned and self.validate_japanese_number(cleaned):
-#                 formatted = self.format_for_twilio(cleaned)
-#                 status = "valid"
-#             else:
-#                 formatted = None
-#                 status = "invalid"
-            
-#             results.append({
-#                 'id': idx,
-#                 'name': name,
-#                 'original': original,
-#                 'cleaned': cleaned if cleaned else "N/A",
-#                 'international': formatted if formatted else "N/A",
-#                 'status': status
-#             })
-        
-#         return results
-
-# class TwilioCaller:
-#     def __init__(self, account_sid, auth_token, from_number, forward_number="+817044448888"):
-#         try:
-#             self.client = Client(account_sid, auth_token)
-#             self.from_number = from_number
-#             self.forward_number = forward_number
-#             self.is_configured = True
-#         except Exception as e:
-#             self.is_configured = False
-#             self.error = str(e)
-    
-#     def make_call_with_forwarding(self, to_number, person_name=""):
-#         """Make call - if answered forward to operator, if not leave voicemail"""
-#         if not self.is_configured:
-#             return False, "Twilio not configured properly"
-        
-#         twiml = f'''
-#         <Response>
-#             <Say language="ja-JP">お繋ぎしますのでお待ちください</Say>
-#             <Dial timeout="30" record="record-from-answer">
-#                 <Number>{self.forward_number}</Number>
-#             </Dial>
-#             <Say language="ja-JP">こちらは法律事務所です。大切な用件がございますので、折り返しお電話ください。</Say>
-#         </Response>
-#         '''
-        
-#         try:
-#             call = self.client.calls.create(
-#                 twiml=twiml,
-#                 to=to_number,
-#                 from_=self.from_number,
-#                 machine_detection="Enable",
-#                 machine_detection_timeout=30
-#             )
-#             return True, f"Call to {person_name} initiated. SID: {call.sid}"
-#         except TwilioException as e:
-#             return False, f"Twilio error: {str(e)}"
-#         except Exception as e:
-#             return False, f"Error: {str(e)}"
-
-# class GoogleSheetsLogger:
-#     def __init__(self, credentials_json, spreadsheet_url):
-#         try:
-#             creds_dict = json.loads(credentials_json)
-#             self.creds = Credentials.from_service_account_info(creds_dict)
-#             self.client = gspread.authorize(self.creds)
-#             self.sheet = self.client.open_by_url(spreadsheet_url).sheet1
-#             self.is_configured = True
-#         except Exception as e:
-#             self.is_configured = False
-#             self.error = str(e)
-    
-#     def log_call_result(self, name, phone, status, message, timestamp):
-#         if not self.is_configured:
-#             return False
-        
-#         try:
-#             self.sheet.append_row([timestamp, name, phone, status, message])
-#             return True
-#         except Exception as e:
-#             return False
-
-# def get_initials(name):
-#     """Get initials from a name for avatar display"""
-#     words = name.split()
-#     if len(words) >= 2:
-#         return words[0][0].upper() + words[1][0].upper()
-#     elif len(words) == 1:
-#         return words[0][:2].upper()
-#     return "??"
-
-# def get_status_info(status):
-#     """Get status display information"""
-#     status_map = {
-#         "waiting": ("⏳", "Waiting", "status-waiting"),
-#         "calling": ("📞", "Calling...", "status-calling"),
-#         "completed": ("✅", "Completed", "status-completed"),
-#         "failed": ("❌", "Failed", "status-failed")
-#     }
-#     return status_map.get(status, ("⏳", "Waiting", "status-waiting"))
-
-# def render_contact_card(contact, is_selected, contact_status, twilio_caller=None, sheets_logger=None):
-#     """Render a single contact card with HTML"""
-#     icon, status_text, status_class = get_status_info(contact_status)
-#     initials = get_initials(contact['name'])
-    
-#     # Determine card state class
-#     card_class = "contact-card"
-#     if contact_status == "calling":
-#         card_class += " contact-calling"
-#     elif contact_status == "completed":
-#         card_class += " contact-completed"
-#     elif contact_status == "failed":
-#         card_class += " contact-failed"
-#     elif is_selected:
-#         card_class += " contact-selected"
-    
-#     # Create unique checkbox key
-#     checkbox_key = f"select_{contact['id']}"
-    
-#     # Create columns for checkbox and custom HTML
-#     col1, col2 = st.columns([0.05, 0.95])
-    
-#     with col1:
-#         # Checkbox for selection
-#         new_selected = st.checkbox("", key=checkbox_key, value=is_selected, label_visibility="collapsed")
-#         if new_selected != is_selected:
-#             if new_selected:
-#                 st.session_state.selected_contacts.add(contact['id'])
-#             else:
-#                 st.session_state.selected_contacts.discard(contact['id'])
-#             st.rerun()
-    
-#     with col2:
-#         # Render the contact card HTML (dedented to avoid Markdown code block)
-#         html_content = textwrap.dedent(f"""
-#         <div class="{card_class}">
-#             <div class="contact-avatar">{initials}</div>
-#             <div class="contact-info">
-#                 <div class="contact-name">{contact['name']}</div>
-#                 <div class="contact-phone">{contact['international']}</div>
-#             </div>
-#             <div class="contact-status">
-#                 <div class="status-dot {status_class}"></div>
-#                 <span>{status_text}</span>
-#             </div>
-#         </div>
-#         """)
-#         st.markdown(html_content, unsafe_allow_html=True)
-        
-#         # Add call button if needed
-#         if contact_status == "waiting" and not st.session_state.calling_in_progress:
-#             if st.button("📞 Call", key=f"call_{contact['id']}", use_container_width=False):
-#                 if twilio_caller and twilio_caller.is_configured:
-#                     st.session_state.contact_statuses[contact['id']] = 'calling'
-#                     st.rerun()
-
-# def main():
-#     # Custom Header (dedented)
-#     st.markdown(textwrap.dedent("""
-#     <div class="custom-header">
-#         <div class="header-content">
-#             <div class="logo-container">
-#                 <div class="logo-placeholder">M</div>
-#                 <div class="logo-text">
-#                     <div class="logo-japanese">東京山王法律事務所</div>
-#                     <div class="logo-english">Tokyo Sanno Law Office</div>
-#                 </div>
-#             </div>
-#             <div class="header-title">
-#                 <h1>Advanced Call System</h1>
-#                 <p>Upload → Select → Call → Track Results</p>
-#             </div>
-#         </div>
-#     </div>
-#     """), unsafe_allow_html=True)
-
-#     # Sidebar Configuration
-#     with st.sidebar:
-#         st.markdown("### ⚙️ **Configuration**")
-        
-#         # Operator number
-#         operator_number = st.text_input(
-#             "Operator Forward Number",
-#             value="+817044448888",
-#             help="Number to forward calls to"
-#         )
-        
-#         # Twilio configuration
-#         try:
-#             if "twilio" in st.secrets:
-#                 account_sid = st.secrets["twilio"]["account_sid"]
-#                 auth_token = st.secrets["twilio"]["auth_token"]
-#                 from_number = st.secrets["twilio"]["from_number"]
-#             else:
-#                 account_sid = st.secrets["account_sid"]
-#                 auth_token = st.secrets["auth_token"]
-#                 from_number = st.secrets["from_number"]
-            
-#             st.success("✅ **Twilio configured successfully!**")
-#             st.info(f"📞 **From:** {from_number}")
-#             twilio_configured = True
-                
-#         except KeyError as e:
-#             st.error(f"❌ **Missing Twilio secret:** {e}")
-#             twilio_configured = False
-#             account_sid = auth_token = from_number = None
-            
-#         except Exception as e:
-#             st.error(f"❌ **Error loading Twilio secrets:** {e}")
-#             twilio_configured = False
-#             account_sid = auth_token = from_number = None
-        
-#         # Google Sheets configuration
-#         sheets_logger = None
-#         with st.expander("📊 **Spreadsheet Logging**", expanded=False):
-#             spreadsheet_url = st.text_input(
-#                 "Google Sheets URL",
-#                 help="URL of your Google Sheets for logging results"
-#             )
-            
-#             try:
-#                 if "google_sheets" in st.secrets:
-#                     google_creds = st.secrets["google_sheets"]["credentials"]
-#                     if spreadsheet_url:
-#                         sheets_logger = GoogleSheetsLogger(google_creds, spreadsheet_url)
-#                         if sheets_logger.is_configured:
-#                             st.success("✅ **Google Sheets connected!**")
-#                         else:
-#                             st.error(f"❌ **Sheets error:** {sheets_logger.error}")
-#                             sheets_logger = None
-#                 else:
-#                     st.info("📝 **Google Sheets credentials not configured**")
-#             except Exception as e:
-#                 st.error(f"❌ **Sheets configuration error:** {e}")
-        
-#         # Create TwilioCaller
-#         if twilio_configured:
-#             twilio_caller = TwilioCaller(account_sid, auth_token, from_number, operator_number)
-#         else:
-#             twilio_caller = None
-        
-#         # Call Settings
-#         with st.expander("📞 **Call Settings**", expanded=False):
-#             call_delay = st.slider("Delay between calls (seconds)", 1, 30, 5)
-            
-#         st.markdown("### 🎯 **Process**")
-#         st.markdown("""
-#         **1.** Upload Excel file  
-#         **2.** Select contacts  
-#         **3.** Start calling  
-#         **4.** Monitor progress  
-#         **5.** View results
-#         """)
-
-#     # Main content with collapsible sections
-    
-#     # Step 1: File Upload (Collapsible)
-#     with st.expander("📂 **Step 1: Upload Contact List**", expanded=True):
-#         st.markdown(textwrap.dedent("""
-#         <div class="upload-hint">
-#             <h4>📋 Upload Excel File</h4>
-#             <p>Upload your Excel file with <strong>Name</strong> and <strong>Phone_Number</strong> columns</p>
-#         </div>
-#         """), unsafe_allow_html=True)
-        
-#         uploaded_file = st.file_uploader(
-#             "Choose an Excel file",
-#             type=['xlsx', 'xls'],
-#             help="Upload an Excel file containing phone numbers"
-#         )
-        
-#         if uploaded_file is not None:
-#             try:
-#                 df = pd.read_excel(uploaded_file)
-#                 st.success(f"✅ **File uploaded successfully!** Found **{len(df)}** rows.")
-                
-#                 if 'Name' in df.columns and 'Phone_Number' in df.columns:
-#                     processor = JapanesePhoneProcessor()
-#                     data_list = df.to_dict('records')
-                    
-#                     with st.spinner("🔄 Processing phone numbers..."):
-#                         results = processor.process_numbers_with_names(data_list)
-#                         st.session_state.processed_numbers = results
-                        
-#                         # Initialize contact statuses
-#                         for contact in results:
-#                             if contact['id'] not in st.session_state.contact_statuses:
-#                                 st.session_state.contact_statuses[contact['id']] = 'waiting'
-                                
-#                     # Show quick stats
-#                     valid_count = len([r for r in results if r['status'] == 'valid'])
-#                     invalid_count = len([r for r in results if r['status'] == 'invalid'])
-                    
-#                     col1, col2, col3 = st.columns(3)
-#                     with col1:
-#                         st.metric("📋 Total", len(results))
-#                     with col2:
-#                         st.metric("✅ Valid", valid_count)
-#                     with col3:
-#                         st.metric("❌ Invalid", invalid_count)
-                        
-#                 else:
-#                     st.warning("⚠️ Please ensure your Excel has 'Name' and 'Phone_Number' columns")
-                    
-#             except Exception as e:
-#                 st.error(f"❌ **Error processing file:** {str(e)}")
-    
-#     # Step 2: Contact Management and Calling
-#     if st.session_state.processed_numbers:
-#         valid_contacts = [c for c in st.session_state.processed_numbers if c['status'] == 'valid']
-        
-#         if valid_contacts:
-#             with st.expander("📞 **Step 2: Select & Call Contacts**", expanded=True):
-#                 # Statistics Dashboard
-#                 total_contacts = len(valid_contacts)
-#                 selected_count = len(st.session_state.selected_contacts)
-#                 completed_count = len([c for c in valid_contacts if st.session_state.contact_statuses.get(c['id']) == 'completed'])
-#                 failed_count = len([c for c in valid_contacts if st.session_state.contact_statuses.get(c['id']) == 'failed'])
-#                 calling_count = 1 if st.session_state.calling_in_progress else 0
-                
-#                 # Metrics row
-#                 col1, col2, col3, col4, col5 = st.columns(5)
-                
-#                 with col1:
-#                     st.metric("📋 Total Valid", total_contacts)
-                
-#                 with col2:
-#                     st.metric("🔵 Selected", selected_count)
-                
-#                 with col3:
-#                     st.metric("📞 Calling", calling_count)
-                
-#                 with col4:
-#                     st.metric("✅ Completed", completed_count)
-                
-#                 with col5:
-#                     st.metric("❌ Failed", failed_count)
-                
-#                 st.markdown("---")
-                
-#                 # Control buttons
-#                 col1, col2, col3, col4, col5 = st.columns(5)
-                
-#                 with col1:
-#                     if st.button("✅ Select All", use_container_width=True):
-#                         st.session_state.selected_contacts = set([c['id'] for c in valid_contacts])
-#                         st.rerun()
-                
-#                 with col2:
-#                     if st.button("❌ Deselect All", use_container_width=True):
-#                         st.session_state.selected_contacts.clear()
-#                         st.rerun()
-                
-#                 with col3:
-#                     if st.button("📞 Start Calling", type="primary", use_container_width=True, 
-#                                disabled=not st.session_state.selected_contacts or st.session_state.calling_in_progress):
-#                         if 'twilio_caller' in locals() and twilio_caller and twilio_caller.is_configured:
-#                             st.session_state.call_queue = list(st.session_state.selected_contacts)
-#                             st.session_state.calling_in_progress = True
-#                             st.session_state.stop_calling = False
-#                             st.rerun()
-#                         else:
-#                             st.error("❌ Twilio not configured properly!")
-                
-#                 with col4:
-#                     if st.button("🛑 Stop Calling", use_container_width=True,
-#                                disabled=not st.session_state.calling_in_progress):
-#                         st.session_state.stop_calling = True
-#                         st.session_state.calling_in_progress = False
-#                         st.session_state.call_queue = []
-#                         st.success("🛑 Calling stopped!")
-#                         st.rerun()
-                
-#                 with col5:
-#                     if st.button("🔄 Reset All", use_container_width=True):
-#                         st.session_state.selected_contacts.clear()
-#                         st.session_state.calling_in_progress = False
-#                         st.session_state.call_queue = []
-#                         st.session_state.contact_statuses = {}
-#                         for contact in valid_contacts:
-#                             st.session_state.contact_statuses[contact['id']] = 'waiting'
-#                         st.rerun()
-                
-#                 # Progress bar
-#                 if st.session_state.calling_in_progress and st.session_state.call_queue:
-#                     total_to_call = len([c for c in valid_contacts if c['id'] in st.session_state.selected_contacts])
-#                     remaining = len(st.session_state.call_queue)
-#                     progress = (total_to_call - remaining) / total_to_call if total_to_call > 0 else 0
-                    
-#                     st.markdown(textwrap.dedent(f"""
-#                     <div class="progress-container">
-#                         <div class="progress-bar" style="width: {progress * 100}%"></div>
-#                     </div>
-#                     """), unsafe_allow_html=True)
-                    
-#                     st.info(f"📞 Progress: {total_to_call - remaining} / {total_to_call} calls completed")
-            
-#             # Contact List (Collapsible)
-#             with st.expander("👥 **Contact List**", expanded=True):
-#                 st.markdown("### Contacts")
-                
-#                 # Render each contact card
-#                 for contact in valid_contacts:
-#                     is_selected = contact['id'] in st.session_state.selected_contacts
-#                     contact_status = st.session_state.contact_statuses.get(contact['id'], 'waiting')
-#                     render_contact_card(contact, is_selected, contact_status, twilio_caller, sheets_logger)
-            
-#             # Handle sequential calling
-#             if st.session_state.calling_in_progress and st.session_state.call_queue and not st.session_state.stop_calling:
-#                 if 'twilio_caller' in locals() and twilio_caller and twilio_caller.is_configured:
-#                     current_id = st.session_state.call_queue[0]
-#                     current_contact = next((c for c in valid_contacts if c['id'] == current_id), None)
-                    
-#                     if current_contact:
-#                         st.session_state.contact_statuses[current_id] = 'calling'
-#                         st.session_state.current_calling_index = current_id
-                        
-#                         with st.spinner(f"📞 Calling {current_contact['name']}..."):
-#                             success, message = twilio_caller.make_call_with_forwarding(
-#                                 current_contact['international'],
-#                                 current_contact['name']
-#                             )
-                            
-#                             # Update status
-#                             if success:
-#                                 st.session_state.contact_statuses[current_id] = 'completed'
-#                                 st.success(f"✅ {current_contact['name']}: Call initiated successfully")
-#                             else:
-#                                 st.session_state.contact_statuses[current_id] = 'failed'
-#                                 st.error(f"❌ {current_contact['name']}: {message}")
-                            
-#                             # Log to Google Sheets
-#                             if sheets_logger and sheets_logger.is_configured:
-#                                 sheets_logger.log_call_result(
-#                                     current_contact['name'],
-#                                     current_contact['international'],
-#                                     'Success' if success else 'Failed',
-#                                     message,
-#                                     datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-#                                 )
-                            
-#                             # Add to call history
-#                             st.session_state.call_history.append({
-#                                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-#                                 'name': current_contact['name'],
-#                                 'number': current_contact['international'],
-#                                 'status': 'Success' if success else 'Failed',
-#                                 'message': message
-#                             })
-                            
-#                             # Remove from queue
-#                             st.session_state.call_queue.pop(0)
-#                             st.session_state.current_calling_index = None
-                            
-#                             # Check if more calls to make
-#                             if not st.session_state.call_queue:
-#                                 st.session_state.calling_in_progress = False
-#                                 st.success("🎉 All selected calls completed!")
-#                             else:
-#                                 # Wait before next call
-#                                 time.sleep(call_delay)
-                            
-#                             st.rerun()
-    
-#     # Call History (Collapsible)
-#     if st.session_state.call_history:
-#         with st.expander("📋 **Call History & Results**", expanded=False):
-#             history_df = pd.DataFrame(st.session_state.call_history)
-#             st.dataframe(history_df, use_container_width=True, height=300)
-            
-#             col1, col2 = st.columns(2)
-#             with col1:
-#                 history_csv = history_df.to_csv(index=False)
-#                 st.download_button(
-#                     label="📥 **Download Call History**",
-#                     data=history_csv,
-#                     file_name=f"call_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-#                     mime="text/csv",
-#                     use_container_width=True
-#                 )
-            
-#             with col2:
-#                 if st.button("🗑️ **Clear History**", use_container_width=True):
-#                     st.session_state.call_history = []
-#                     st.rerun()
-
-# if __name__ == "__main__":
-#     main()
-
 import streamlit as st
 import pandas as pd
 import re
 import time
 from datetime import datetime
-import gspread
-from google.oauth2.service_account import Credentials
 from twilio.rest import Client
 from twilio.base.exceptions import TwilioException
-import json
-import textwrap
 
-# =========================
-# Page config & global CSS
-# =========================
+# Force light theme
 st.set_page_config(
     page_title="Tokyo Sanno Law Office - Call System",
     page_icon="📞",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    menu_items=None
 )
 
-st.markdown(textwrap.dedent("""
+# Force light theme CSS
+st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    /* Force light theme */
+    :root {
+        color-scheme: light;
+    }
+    .stApp {
+        background-color: #ffffff;
+        color: #000000;
+    }
+    
+    /* Hide Streamlit branding */
     #MainMenu, footer, header {visibility: hidden;}
     .main { padding-top: 0rem; font-family: 'Inter', sans-serif; }
 
+    /* Header */
     .custom-header {
         background: linear-gradient(135deg, #0f1419 0%, #1a2332 50%, #2c3e50 100%);
-        padding: 2rem 3rem; margin: -1rem -1rem 2rem -1rem; border-radius: 0 0 20px 20px;
-        position: relative; overflow: hidden;
+        padding: 2rem 3rem; 
+        margin: -1rem -1rem 2rem -1rem; 
+        border-radius: 0 0 20px 20px;
+        color: white;
+        text-align: center;
     }
-    .custom-header::before {
-        content: ''; position: absolute; inset: 0;
-        background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grid" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M 8 0 L 0 0 0 8" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="0.5"/></pattern></defs><rect width="100" height="100" fill="url(%23grid)"/></svg>');
+    .custom-header h1 {
+        font-size: 2.5rem; 
+        font-weight: 700; 
+        margin: 0;
+        color: white;
     }
-    .header-content { position: relative; z-index: 2; display: flex; align-items: center; gap: 2rem; }
-    .logo-container {
-        display: flex; align-items: center; gap: 1rem; background: rgba(255,255,255,0.95);
-        padding: 1rem 1.5rem; border-radius: 15px; backdrop-filter: blur(10px);
-        box-shadow: 0 8px 32px rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.2);
+    .custom-header p { 
+        font-size: 1rem; 
+        margin: 0.5rem 0 0 0; 
+        opacity: 0.9;
+        color: white;
     }
-    .logo-placeholder {
-        width: 60px; height: 60px; border-radius: 12px;
-        background: linear-gradient(135deg, #c9b037 0%, #dcca2b 50%, #c9b037 100%);
-        display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 300; color: white;
-    }
-    .logo-text { display: flex; flex-direction: column; }
-    .logo-japanese { font-size: 20px; font-weight: 600; color: #1a1a1a; letter-spacing: 1px; margin-bottom: 2px; }
-    .logo-english  { font-size: 12px; color: #666; font-weight: 500; letter-spacing: 0.5px; text-transform: uppercase; }
-    .header-title { color: white; margin-left: auto; }
-    .header-title h1 {
-        font-size: 2rem; font-weight: 700; margin: 0;
-        background: linear-gradient(135deg, #fff 0%, #c9b037 100%);
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
-    }
-    .header-title p { font-size: 0.9rem; margin: 0; opacity: 0.8; font-weight: 400; }
 
+    /* Contact Cards */
     .contact-card {
-        background: white; border-radius: 12px; padding: 1rem; border: 2px solid #e5e7eb; margin-bottom: 0.75rem;
-        display: flex; align-items: center; gap: 1rem; transition: all 0.3s ease;
+        background: white; 
+        border-radius: 12px; 
+        padding: 1.25rem; 
+        border: 2px solid #e5e7eb; 
+        margin-bottom: 0.75rem;
+        display: flex; 
+        align-items: center; 
+        gap: 1rem; 
+        transition: all 0.3s ease;
     }
-    .contact-card:hover { border-color: #3b82f6; transform: translateX(4px); box-shadow: 0 4px 12px rgba(59,130,246,0.15); }
+    .contact-card:hover { 
+        border-color: #3b82f6; 
+        transform: translateX(4px); 
+        box-shadow: 0 4px 12px rgba(59,130,246,0.15); 
+    }
+    
     .contact-avatar {
-        width: 45px; height: 45px; border-radius: 50%;
+        width: 50px; 
+        height: 50px; 
+        border-radius: 50%;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 16px; flex-shrink: 0;
+        display: flex; 
+        align-items: center; 
+        justify-content: center; 
+        color: white; 
+        font-weight: 600; 
+        font-size: 18px; 
+        flex-shrink: 0;
     }
+    
     .contact-info { flex: 1; min-width: 0; }
-    .contact-name { font-weight: 600; color: #1a1a1a; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .contact-phone { color: #6b7280; font-size: 0.9rem; font-family: 'Monaco', 'Courier New', monospace; }
+    .contact-name { 
+        font-weight: 600; 
+        color: #1a1a1a; 
+        margin-bottom: 4px; 
+        font-size: 1.1rem;
+    }
+    .contact-phone { 
+        color: #6b7280; 
+        font-size: 0.95rem; 
+        font-family: 'Monaco', monospace; 
+    }
 
-    .contact-status { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 8px; background: #f9fafb; }
-    .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .contact-status { 
+        display: flex; 
+        align-items: center; 
+        gap: 8px; 
+        padding: 8px 16px; 
+        border-radius: 20px; 
+        background: #f9fafb;
+        font-weight: 500;
+    }
+    .status-dot { 
+        width: 10px; 
+        height: 10px; 
+        border-radius: 50%; 
+    }
+    
+    /* Status colors */
     .status-waiting { background: #6b7280; }
-    .status-calling { background: #f59e0b; animation: pulse 2s infinite; }
+    .status-ringing { 
+        background: #f59e0b; 
+        animation: pulse 1.5s infinite; 
+    }
+    .status-connected { 
+        background: #3b82f6; 
+        animation: pulse 1.5s infinite; 
+    }
     .status-completed { background: #10b981; }
     .status-failed { background: #ef4444; }
 
-    .contact-selected { border-color: #3b82f6; background: rgba(59,130,246,0.02); box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
-    .contact-calling  { border-color: #f59e0b; background: rgba(245,158,11,0.05); animation: pulse-border 2s infinite; }
-    .contact-completed{ border-color: #10b981; background: rgba(16,185,129,0.02); }
-    .contact-failed   { border-color: #ef4444; background: rgba(239,68,68,0.02); }
+    /* Card states */
+    .contact-selected { 
+        border-color: #3b82f6; 
+        background: rgba(59,130,246,0.05); 
+    }
+    .contact-calling { 
+        border-color: #f59e0b; 
+        background: rgba(245,158,11,0.05); 
+        animation: pulse-border 2s infinite; 
+    }
+    .contact-completed { 
+        border-color: #10b981; 
+        background: rgba(16,185,129,0.02); 
+    }
+    .contact-failed { 
+        border-color: #ef4444; 
+        background: rgba(239,68,68,0.02); 
+    }
 
-    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
-    @keyframes pulse-border { 0%,100%{transform:scale(1);} 50%{transform:scale(1.01);} }
+    @keyframes pulse { 
+        0%, 100% { opacity: 1; transform: scale(1); } 
+        50% { opacity: 0.6; transform: scale(1.1); } 
+    }
+    @keyframes pulse-border { 
+        0%, 100% { transform: scale(1); } 
+        50% { transform: scale(1.01); } 
+    }
 
-    .progress-container { background: #f3f4f6; border-radius: 10px; height: 8px; overflow: hidden; margin: 1rem 0; }
-    .progress-bar { height: 100%; background: linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%); border-radius: 10px; transition: width 0.3s ease; }
+    /* Progress bar */
+    .progress-container { 
+        background: #e5e7eb; 
+        border-radius: 10px; 
+        height: 12px; 
+        overflow: hidden; 
+        margin: 1rem 0; 
+    }
+    .progress-bar { 
+        height: 100%; 
+        background: linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%); 
+        border-radius: 10px; 
+        transition: width 0.3s ease; 
+    }
 
-    .stButton > button { border-radius: 8px !important; font-weight: 600 !important; transition: all 0.3s ease !important; box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important; }
-    .stButton > button:hover { transform: translateY(-1px) !important; box-shadow: 0 4px 8px rgba(0,0,0,0.15) !important; }
-
-    .upload-hint {
-        background: linear-gradient(135deg, rgba(201,176,55,0.1) 0%, rgba(220,202,43,0.1) 100%);
-        border: 2px dashed #c9b037; border-radius: 12px; padding: 2rem; text-align: center; margin: 1rem 0;
+    /* Buttons */
+    .stButton > button { 
+        border-radius: 8px !important; 
+        font-weight: 600 !important; 
+        transition: all 0.3s ease !important; 
+    }
+    .stButton > button:hover { 
+        transform: translateY(-2px) !important; 
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important; 
+    }
+    
+    /* Current call highlight */
+    .current-call-banner {
+        background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
+        color: white;
+        padding: 1rem 1.5rem;
+        border-radius: 12px;
+        margin: 1rem 0;
+        font-size: 1.1rem;
+        font-weight: 600;
+        text-align: center;
+        animation: pulse-border 2s infinite;
     }
 </style>
-"""), unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# =========================
 # Session state
-# =========================
-ss = st.session_state
-ss.setdefault('processed_numbers', [])
-ss.setdefault('call_history', [])
-ss.setdefault('selected_contacts', set())
-ss.setdefault('calling_in_progress', False)
-ss.setdefault('current_calling_id', None)
-ss.setdefault('stop_after_current', False)  # <-- cancel behavior: finish current, stop next
-ss.setdefault('call_queue', [])
-ss.setdefault('contact_statuses', {})
-ss.setdefault('sheets_logger', None)
+if 'processed_numbers' not in st.session_state:
+    st.session_state.processed_numbers = []
+if 'call_history' not in st.session_state:
+    st.session_state.call_history = []
+if 'selected_contacts' not in st.session_state:
+    st.session_state.selected_contacts = set()
+if 'calling_in_progress' not in st.session_state:
+    st.session_state.calling_in_progress = False
+if 'current_calling_id' not in st.session_state:
+    st.session_state.current_calling_id = None
+if 'call_queue' not in st.session_state:
+    st.session_state.call_queue = []
+if 'contact_statuses' not in st.session_state:
+    st.session_state.contact_statuses = {}
 
-# =========================
-# Helpers
-# =========================
+# Japanese Phone Processor
 class JapanesePhoneProcessor:
     def __init__(self):
         self.mobile_prefixes = ['070', '080', '090']
 
     def clean_number(self, number):
-        if pd.isna(number): return None
+        if pd.isna(number):
+            return None
         digits = re.sub(r'[^\d]', '', str(number).strip())
-        if not digits: return None
+        if not digits:
+            return None
+        
+        # Fix common formats
         if len(digits) == 9:
             digits = '0' + digits
         elif len(digits) == 10:
             if not digits.startswith('0'):
                 digits = '0' + digits
         elif len(digits) == 11:
-            if digits.startswith('81'):  # 81xxxxxxxxx => 0xxxxxxxxx
+            if digits.startswith('81'):
                 digits = '0' + digits[2:]
         elif len(digits) > 11:
             digits = digits[:11]
         else:
             if len(digits) < 8:
                 return None
+        
         return digits
 
     def validate_japanese_number(self, number):
-        if not number or not number.startswith('0'): return False
-        if number[:3] in self.mobile_prefixes and len(number) == 11: return True
+        if not number or not number.startswith('0'):
+            return False
+        if number[:3] in self.mobile_prefixes and len(number) == 11:
+            return True
         if len(number) == 10:
-            if number.startswith('03') or number.startswith('06'): return True
-            if number[1] in '123459': return True
+            if number.startswith('03') or number.startswith('06'):
+                return True
+            if number[1] in '123459':
+                return True
         return False
 
     def format_for_twilio(self, number):
-        if not self.validate_japanese_number(number): return None
+        if not self.validate_japanese_number(number):
+            return None
         return '+81' + number[1:]
 
     def process_numbers_with_names(self, data_list):
@@ -1062,14 +266,17 @@ class JapanesePhoneProcessor:
             else:
                 name = str(row[0]) if len(row) > 0 else f'Person {idx+1}'
                 number = row[1] if len(row) > 1 else ''
+            
             original = str(number) if not pd.isna(number) else ""
             cleaned = self.clean_number(number)
+            
             if cleaned and self.validate_japanese_number(cleaned):
                 intl = self.format_for_twilio(cleaned)
                 status = "valid"
             else:
                 intl = None
                 status = "invalid"
+            
             results.append({
                 'id': idx,
                 'name': name,
@@ -1080,29 +287,25 @@ class JapanesePhoneProcessor:
             })
         return results
 
+# Twilio Caller
 class TwilioCaller:
-    def __init__(self, account_sid, auth_token, from_number, forward_number="+817044448888"):
+    def __init__(self, account_sid, auth_token, from_number, operator_number):
         try:
             self.client = Client(account_sid, auth_token)
             self.from_number = from_number
-            self.forward_number = forward_number
+            self.operator_number = operator_number
             self.is_configured = True
         except Exception as e:
             self.is_configured = False
             self.error = str(e)
 
     def twiml_for_call(self):
-        # Forward immediately to operator; if operator bridge fails/times out, play voicemail message.
+        # Direct connect - NO bot voice, just dial operator immediately
         return f"""
 <Response>
-  <Say language="ja-JP">お繋ぎしますのでお待ちください</Say>
   <Dial timeout="30" record="record-from-answer">
-    <Number>{self.forward_number}</Number>
+    <Number>{self.operator_number}</Number>
   </Dial>
-  <Say language="ja-JP">
-    こちらは東京山王法律事務所です。大切な用件がございます。
-    お手数ですが、折り返しお電話ください。
-  </Say>
 </Response>
 """.strip()
 
@@ -1113,129 +316,78 @@ class TwilioCaller:
             call = self.client.calls.create(
                 twiml=self.twiml_for_call(),
                 to=to_number,
-                from_=self.from_number,
-                machine_detection="Enable",              # enable AMD (best-effort without webhook)
-                machine_detection_timeout=30
+                from_=self.from_number
             )
-            return True, f"Call to {person_name} initiated. SID: {call.sid}", call.sid
+            return True, f"Call initiated to {person_name}", call.sid
         except TwilioException as e:
             return False, f"Twilio error: {str(e)}", None
         except Exception as e:
             return False, f"Error: {str(e)}", None
 
     def poll_status(self, sid):
-        """Fetch call status from Twilio."""
         try:
             call = self.client.calls(sid).fetch()
-            # Common statuses: queued, ringing, in-progress, completed, busy, failed, no-answer, canceled
             return True, call.status
         except Exception as e:
             return False, str(e)
 
-class GoogleSheetsLogger:
-    """
-    - Opens/creates spreadsheet named 'Call System Logs - Tokyo Law Office'
-    - Uses 'Sheet1' (auto-creates if missing)
-    - Ensures header row
-    """
-    def __init__(self, credentials_json, explicit_url=None, title_fallback="Call System Logs - Tokyo Law Office", worksheet_name="Sheet1"):
-        self.is_configured = False
-        self.error = None
-        self.sa_email = None
-        self.worksheet_name = worksheet_name
-
-        try:
-            creds_dict = json.loads(credentials_json)
-            scopes = [
-                "https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive"
-            ]
-            self.creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-            self.sa_email = self.creds.service_account_email
-            self.client = gspread.authorize(self.creds)
-
-            if explicit_url:
-                try:
-                    self.spreadsheet = self.client.open_by_url(explicit_url)
-                except Exception:
-                    # fallback to title if URL failed
-                    self.spreadsheet = self._open_or_create_by_title(title_fallback)
-            else:
-                self.spreadsheet = self._open_or_create_by_title(title_fallback)
-
-            try:
-                self.sheet = self.spreadsheet.worksheet(worksheet_name)
-            except gspread.exceptions.WorksheetNotFound:
-                self.sheet = self.spreadsheet.add_worksheet(title=worksheet_name, rows=1000, cols=20)
-
-            if len(self.sheet.get_all_values()) == 0:
-                self.sheet.append_row(["timestamp", "name", "phone", "status", "message"], value_input_option="RAW")
-
-            self.is_configured = True
-        except Exception as e:
-            self.error = str(e)
-
-    def _open_or_create_by_title(self, title):
-        try:
-            return self.client.open(title)
-        except gspread.SpreadsheetNotFound:
-            sh = self.client.create(title)
-            # Make sure your service account has access; for external viewing, share manually if needed
-            return sh
-
-    def log(self, name, phone, status, message, timestamp):
-        if not self.is_configured:
-            return False, "Sheets not configured"
-        try:
-            self.sheet.append_row([timestamp, name, phone, status, message], value_input_option="RAW")
-            return True, None
-        except Exception as e:
-            return False, str(e)
-
+# Helpers
 def get_initials(name):
     words = name.split()
-    if len(words) >= 2: return words[0][0].upper() + words[1][0].upper()
-    if len(words) == 1: return words[0][:2].upper()
+    if len(words) >= 2:
+        return words[0][0].upper() + words[1][0].upper()
+    if len(words) == 1:
+        return words[0][:2].upper()
     return "??"
 
-def get_status_info(status):
+def get_status_display(status):
     status_map = {
         "waiting": ("⏳", "Waiting", "status-waiting"),
-        "calling": ("📞", "Calling...", "status-calling"),
-        "in-progress": ("📞", "In call...", "status-calling"),
+        "queued": ("⏳", "Queued", "status-waiting"),
+        "ringing": ("📳", "Ringing", "status-ringing"),
+        "in-progress": ("📞", "Connected", "status-connected"),
         "completed": ("✅", "Completed", "status-completed"),
         "failed": ("❌", "Failed", "status-failed"),
         "no-answer": ("❌", "No Answer", "status-failed"),
         "busy": ("❌", "Busy", "status-failed"),
         "canceled": ("❌", "Canceled", "status-failed"),
-        "ringing": ("📳", "Ringing...", "status-calling"),
-        "queued": ("⏳", "Queued", "status-waiting"),
     }
     return status_map.get(status, ("⏳", status.title(), "status-waiting"))
 
 def render_contact_card(contact, is_selected, contact_status):
-    _, status_text, status_class = get_status_info(contact_status)
+    icon, status_text, status_class = get_status_display(contact_status)
     initials = get_initials(contact['name'])
 
     card_class = "contact-card"
-    if contact_status in ("calling", "ringing", "queued", "in-progress"): card_class += " contact-calling"
-    elif contact_status == "completed": card_class += " contact-completed"
-    elif contact_status in ("failed", "no-answer", "busy", "canceled"): card_class += " contact-failed"
-    elif is_selected: card_class += " contact-selected"
+    if contact_status in ("ringing", "queued", "in-progress"):
+        card_class += " contact-calling"
+    elif contact_status == "completed":
+        card_class += " contact-completed"
+    elif contact_status in ("failed", "no-answer", "busy", "canceled"):
+        card_class += " contact-failed"
+    elif is_selected:
+        card_class += " contact-selected"
 
-    checkbox_key = f"select_{contact['id']}"
     col1, col2 = st.columns([0.05, 0.95])
-
+    
     with col1:
-        new_selected = st.checkbox("", key=checkbox_key, value=is_selected, label_visibility="collapsed",
-                                   disabled=ss.calling_in_progress)
+        checkbox_key = f"select_{contact['id']}"
+        new_selected = st.checkbox(
+            "", 
+            key=checkbox_key, 
+            value=is_selected, 
+            label_visibility="collapsed",
+            disabled=st.session_state.calling_in_progress
+        )
         if new_selected != is_selected:
-            if new_selected: ss.selected_contacts.add(contact['id'])
-            else: ss.selected_contacts.discard(contact['id'])
+            if new_selected:
+                st.session_state.selected_contacts.add(contact['id'])
+            else:
+                st.session_state.selected_contacts.discard(contact['id'])
             st.rerun()
 
     with col2:
-        html = textwrap.dedent(f"""
+        html = f"""
         <div class="{card_class}">
             <div class="contact-avatar">{initials}</div>
             <div class="contact-info">
@@ -1247,294 +399,313 @@ def render_contact_card(contact, is_selected, contact_status):
                 <span>{status_text}</span>
             </div>
         </div>
-        """)
+        """
         st.markdown(html, unsafe_allow_html=True)
 
-# =========================
-# App UI
-# =========================
+# Main App
 def main():
-    st.markdown(textwrap.dedent("""
+    # Header
+    st.markdown("""
     <div class="custom-header">
-      <div class="header-content">
-        <div class="logo-container">
-          <div class="logo-placeholder">M</div>
-          <div class="logo-text">
-            <div class="logo-japanese">東京山王法律事務所</div>
-            <div class="logo-english">Tokyo Sanno Law Office</div>
-          </div>
-        </div>
-        <div class="header-title">
-          <h1>Advanced Call System</h1>
-          <p>Upload → Select → Call → Track Results</p>
-        </div>
-      </div>
+        <h1>📞 Tokyo Sanno Law Office</h1>
+        <p>Direct Connect Call System</p>
     </div>
-    """), unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
-    # Sidebar
+    # Sidebar - Configuration
     with st.sidebar:
-        st.markdown("### ⚙️ **Configuration**")
-
-        operator_number = st.text_input("Operator Forward Number", value="+817044448888")
-        # Twilio secrets
+        st.markdown("### ⚙️ Configuration")
+        
+        operator_number = st.text_input(
+            "Operator Number", 
+            value="+817044448888",
+            help="Number to connect calls to"
+        )
+        
+        # Twilio Configuration
         try:
             if "twilio" in st.secrets:
                 account_sid = st.secrets["twilio"]["account_sid"]
-                auth_token  = st.secrets["twilio"]["auth_token"]
+                auth_token = st.secrets["twilio"]["auth_token"]
                 from_number = st.secrets["twilio"]["from_number"]
             else:
                 account_sid = st.secrets["account_sid"]
-                auth_token  = st.secrets["auth_token"]
+                auth_token = st.secrets["auth_token"]
                 from_number = st.secrets["from_number"]
+            
             twilio_caller = TwilioCaller(account_sid, auth_token, from_number, operator_number)
+            
             if twilio_caller.is_configured:
-                st.success("✅ Twilio configured")
-                st.info(f"From: {from_number}")
+                st.success("✅ Twilio Connected")
+                st.info(f"📱 From: {from_number}")
+                st.info(f"👤 To: {operator_number}")
             else:
-                st.error(f"❌ Twilio error: {twilio_caller.error}")
+                st.error(f"❌ Twilio Error: {twilio_caller.error}")
                 twilio_caller = None
         except Exception as e:
-            st.error(f"❌ Twilio secrets error: {e}")
+            st.error(f"❌ Configuration Error: {e}")
             twilio_caller = None
+        
+        st.markdown("---")
+        call_delay = st.slider("Delay between calls (seconds)", 1, 30, 5)
+        
+        st.markdown("---")
+        st.caption("💡 Upload Excel → Select → Call")
 
-        # Google Sheets logger (persistent)
-        with st.expander("📊 Spreadsheet Logging", expanded=False):
-            explicit_url = st.text_input(
-                "Google Sheets URL (optional)",
-                help="If omitted, a sheet named 'Call System Logs - Tokyo Law Office' will be used/created."
-            )
-            if "google_sheets" in st.secrets:
-                google_creds = st.secrets["google_sheets"]["credentials"]
-                if st.button("🔌 Connect Sheets"):
-                    ss.sheets_logger = GoogleSheetsLogger(
-                        google_creds,
-                        explicit_url=explicit_url.strip() or None,
-                        title_fallback="Call System Logs - Tokyo Law Office",
-                        worksheet_name="Sheet1"
-                    )
-                    if ss.sheets_logger.is_configured:
-                        st.success("✅ Sheets connected")
-                        st.info(f"Share the sheet with: **{ss.sheets_logger.sa_email}** (Editor)")
-                    else:
-                        st.error(f"❌ Sheets error: {ss.sheets_logger.error}")
-                if ss.sheets_logger and ss.sheets_logger.is_configured:
-                    if st.button("🧪 Test write"):
-                        ok, err = ss.sheets_logger.log("TEST_WRITE", "N/A", "OK", "Connectivity check",
-                                                       datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-                        st.success("✅ Test row appended") if ok else st.error(f"❌ Test failed: {err}")
-            else:
-                st.info("Add st.secrets['google_sheets']['credentials'] to enable logging")
-
-        with st.expander("📞 Call Settings", expanded=False):
-            call_delay_between = st.slider("Delay between calls (seconds)", 1, 30, 5)
-        st.caption("Process: 1) Upload → 2) Select → 3) Start → 4) Monitor → 5) Results")
-
-    # Upload
+    # Step 1: Upload
     with st.expander("📂 Step 1: Upload Contact List", expanded=True):
-        st.markdown(textwrap.dedent("""
-        <div class="upload-hint">
-            <h4>📋 Upload Excel File</h4>
-            <p>Excel with <strong>Name</strong> and <strong>Phone_Number</strong> columns</p>
-        </div>
-        """), unsafe_allow_html=True)
-        uploaded_file = st.file_uploader("Choose an Excel file", type=['xlsx', 'xls'])
-        if uploaded_file is not None:
+        st.info("📋 Upload Excel file with **Name** and **Phone_Number** columns")
+        
+        uploaded_file = st.file_uploader("Choose Excel file", type=['xlsx', 'xls'])
+        
+        if uploaded_file:
             try:
                 df = pd.read_excel(uploaded_file)
-                st.success(f"✅ Uploaded {len(df)} rows")
+                st.success(f"✅ Loaded {len(df)} contacts")
+                
                 if 'Name' in df.columns and 'Phone_Number' in df.columns:
                     processor = JapanesePhoneProcessor()
                     results = processor.process_numbers_with_names(df.to_dict('records'))
-                    ss.processed_numbers = results
+                    st.session_state.processed_numbers = results
+                    
+                    # Initialize statuses
                     for c in results:
-                        ss.contact_statuses.setdefault(c['id'], 'waiting')
+                        st.session_state.contact_statuses.setdefault(c['id'], 'waiting')
+                    
                     valid_count = sum(1 for r in results if r['status'] == 'valid')
                     invalid_count = len(results) - valid_count
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("📋 Total", len(results))
-                    c2.metric("✅ Valid", valid_count)
-                    c3.metric("❌ Invalid", invalid_count)
+                    
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("📋 Total", len(results))
+                    col2.metric("✅ Valid", valid_count)
+                    col3.metric("❌ Invalid", invalid_count)
                 else:
-                    st.warning("⚠️ Columns required: 'Name' and 'Phone_Number'")
+                    st.warning("⚠️ Required columns: 'Name' and 'Phone_Number'")
             except Exception as e:
                 st.error(f"❌ Error reading file: {e}")
 
-    # Manage & Call
-    if ss.processed_numbers:
-        valid_contacts = [c for c in ss.processed_numbers if c['status'] == 'valid']
+    # Step 2: Call Management
+    if st.session_state.processed_numbers:
+        valid_contacts = [c for c in st.session_state.processed_numbers if c['status'] == 'valid']
+        
         if valid_contacts:
-            with st.expander("📞 Step 2: Select & Call Contacts", expanded=True):
-                total_contacts = len(valid_contacts)
-                selected_count = len(ss.selected_contacts)
-                completed_count = sum(1 for c in valid_contacts if ss.contact_statuses.get(c['id']) == 'completed')
-                failed_count = sum(1 for c in valid_contacts if ss.contact_statuses.get(c['id']) in ('failed','no-answer','busy','canceled'))
-                calling_count = 1 if ss.calling_in_progress else 0
+            with st.expander("📞 Step 2: Select & Call", expanded=True):
+                # Metrics
+                total = len(valid_contacts)
+                selected = len(st.session_state.selected_contacts)
+                completed = sum(1 for c in valid_contacts 
+                              if st.session_state.contact_statuses.get(c['id']) == 'completed')
+                failed = sum(1 for c in valid_contacts 
+                           if st.session_state.contact_statuses.get(c['id']) in 
+                           ('failed', 'no-answer', 'busy', 'canceled'))
+                calling = 1 if st.session_state.calling_in_progress else 0
 
                 m1, m2, m3, m4, m5 = st.columns(5)
-                m1.metric("📋 Total Valid", total_contacts)
-                m2.metric("🔵 Selected", selected_count)
-                m3.metric("📞 Calling", calling_count)
-                m4.metric("✅ Completed", completed_count)
-                m5.metric("❌ Failed", failed_count)
+                m1.metric("📋 Total", total)
+                m2.metric("🔵 Selected", selected)
+                m3.metric("📞 Calling", calling)
+                m4.metric("✅ Done", completed)
+                m5.metric("❌ Failed", failed)
+
+                # Show current call banner
+                if st.session_state.current_calling_id is not None:
+                    current_contact = next((c for c in valid_contacts 
+                                          if c['id'] == st.session_state.current_calling_id), None)
+                    if current_contact:
+                        current_status = st.session_state.contact_statuses.get(current_contact['id'], 'calling')
+                        icon, status_text, _ = get_status_display(current_status)
+                        
+                        st.markdown(f"""
+                        <div class="current-call-banner">
+                            {icon} Currently calling: {current_contact['name']} - {status_text}
+                        </div>
+                        """, unsafe_allow_html=True)
 
                 st.markdown("---")
-                b1, b2, b3, b4, b5 = st.columns(5)
+                
+                # Control buttons
+                b1, b2, b3, b4 = st.columns(4)
+                
                 with b1:
-                    if st.button("✅ Select All", use_container_width=True, disabled=ss.calling_in_progress):
-                        ss.selected_contacts = set(c['id'] for c in valid_contacts)
+                    if st.button("✅ Select All", use_container_width=True, 
+                               disabled=st.session_state.calling_in_progress):
+                        st.session_state.selected_contacts = set(c['id'] for c in valid_contacts)
                         st.rerun()
+                
                 with b2:
-                    if st.button("❌ Deselect All", use_container_width=True, disabled=ss.calling_in_progress):
-                        ss.selected_contacts.clear()
+                    if st.button("❌ Clear Selection", use_container_width=True,
+                               disabled=st.session_state.calling_in_progress):
+                        st.session_state.selected_contacts.clear()
                         st.rerun()
+                
                 with b3:
-                    if st.button("📞 Start Calling", type="primary", use_container_width=True,
-                                 disabled=(not ss.selected_contacts) or ss.calling_in_progress or not twilio_caller):
-                        ss.call_queue = [c['id'] for c in valid_contacts if c['id'] in ss.selected_contacts]
-                        ss.stop_after_current = False
-                        ss.calling_in_progress = True
+                    can_start = (selected > 0 and not st.session_state.calling_in_progress 
+                               and twilio_caller)
+                    if st.button("📞 Start Calling", type="primary", 
+                               use_container_width=True, disabled=not can_start):
+                        st.session_state.call_queue = [c['id'] for c in valid_contacts 
+                                                      if c['id'] in st.session_state.selected_contacts]
+                        st.session_state.calling_in_progress = True
                         st.rerun()
+                
                 with b4:
-                    if st.button("⏹️ Cancel After Current", use_container_width=True, disabled=not ss.calling_in_progress):
-                        ss.stop_after_current = True
-                        st.success("Will stop after the current call ends.")
-                with b5:
-                    if st.button("🔄 Reset All", use_container_width=True, disabled=ss.calling_in_progress):
-                        ss.selected_contacts.clear()
-                        ss.call_queue = []
-                        ss.contact_statuses = {c['id']:'waiting' for c in valid_contacts}
-                        ss.call_history = []
-                        ss.stop_after_current = False
-                        ss.calling_in_progress = False
+                    if st.button("🔄 Reset All", use_container_width=True,
+                               disabled=st.session_state.calling_in_progress):
+                        st.session_state.selected_contacts.clear()
+                        st.session_state.call_queue = []
+                        st.session_state.contact_statuses = {c['id']: 'waiting' for c in valid_contacts}
+                        st.session_state.call_history = []
+                        st.session_state.calling_in_progress = False
+                        st.session_state.current_calling_id = None
                         st.rerun()
 
                 # Progress bar
-                if ss.calling_in_progress and ss.call_queue:
-                    total_to_call = len([c for c in valid_contacts if c['id'] in ss.selected_contacts])
-                    remaining = len(ss.call_queue)
+                if st.session_state.calling_in_progress and st.session_state.call_queue:
+                    total_to_call = len([c for c in valid_contacts 
+                                       if c['id'] in st.session_state.selected_contacts])
+                    remaining = len(st.session_state.call_queue)
                     progress = (total_to_call - remaining) / total_to_call if total_to_call else 0
+                    
                     st.markdown(f"""
                     <div class="progress-container">
                         <div class="progress-bar" style="width: {progress * 100}%"></div>
                     </div>
                     """, unsafe_allow_html=True)
-                    st.info(f"📞 Progress: {total_to_call - remaining} / {total_to_call} calls completed")
+                    
+                    st.info(f"📊 Progress: {total_to_call - remaining} / {total_to_call} completed")
 
-            # Contact list
+            # Contact List
             with st.expander("👥 Contact List", expanded=True):
                 for contact in valid_contacts:
-                    is_selected = contact['id'] in ss.selected_contacts
-                    status = ss.contact_statuses.get(contact['id'], 'waiting')
+                    is_selected = contact['id'] in st.session_state.selected_contacts
+                    status = st.session_state.contact_statuses.get(contact['id'], 'waiting')
                     render_contact_card(contact, is_selected, status)
 
-            # Sequential calling w/ 3s polling
-            if ss.calling_in_progress and ss.call_queue and not ss.current_calling_id:
+            # Sequential Calling Logic
+            if (st.session_state.calling_in_progress and 
+                st.session_state.call_queue and 
+                st.session_state.current_calling_id is None):
+                
                 # Start next call
-                next_id = ss.call_queue[0]
+                next_id = st.session_state.call_queue[0]
                 current_contact = next((c for c in valid_contacts if c['id'] == next_id), None)
+                
                 if current_contact and twilio_caller:
-                    ss.contact_statuses[next_id] = 'calling'
-                    ss.current_calling_id = next_id
-                    success, message, sid = twilio_caller.make_call(current_contact['international'], current_contact['name'])
-                    call_sid = sid if success else None
+                    st.session_state.contact_statuses[next_id] = 'ringing'
+                    st.session_state.current_calling_id = next_id
+                    
+                    success, message, sid = twilio_caller.make_call(
+                        current_contact['international'], 
+                        current_contact['name']
+                    )
+                    
                     if not success:
-                        ss.contact_statuses[next_id] = 'failed'
+                        # Failed to initiate
+                        st.session_state.contact_statuses[next_id] = 'failed'
                         st.error(f"❌ {current_contact['name']}: {message}")
-                        _log_to_sheet(current_contact, 'Failed', message)
-                        _append_history(current_contact, 'Failed', message)
-                        ss.call_queue.pop(0)
-                        ss.current_calling_id = None
-                        if not ss.call_queue or ss.stop_after_current:
-                            ss.calling_in_progress = False
+                        
+                        # Log to history
+                        st.session_state.call_history.append({
+                            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                            'name': current_contact['name'],
+                            'number': current_contact['international'],
+                            'status': 'Failed',
+                            'details': message
+                        })
+                        
+                        # Move to next
+                        st.session_state.call_queue.pop(0)
+                        st.session_state.current_calling_id = None
+                        
+                        if not st.session_state.call_queue:
+                            st.session_state.calling_in_progress = False
+                        
                         st.rerun()
                     else:
-                        st.success(f"✅ {current_contact['name']}: initiated (SID: {call_sid})")
-                        # Poll every 3 seconds until terminal
-                        _poll_until_terminal(twilio_caller, call_sid, current_contact, call_delay_between)
+                        # Call initiated - poll until complete
+                        st.success(f"✅ Calling {current_contact['name']}...")
+                        poll_call_until_complete(twilio_caller, sid, current_contact, 
+                                                call_delay, valid_contacts)
 
-    # History
-    if ss.call_history:
+    # Call History
+    if st.session_state.call_history:
         with st.expander("📋 Call History & Results", expanded=False):
-            history_df = pd.DataFrame(ss.call_history)
-            st.dataframe(history_df, use_container_width=True, height=320)
-            c1, c2 = st.columns(2)
-            with c1:
+            history_df = pd.DataFrame(st.session_state.call_history)
+            st.dataframe(history_df, use_container_width=True, height=400)
+            
+            col1, col2 = st.columns(2)
+            with col1:
                 csv = history_df.to_csv(index=False)
-                st.download_button("📥 Download CSV", csv, file_name=f"call_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", mime="text/csv", use_container_width=True)
-            with c2:
-                if st.button("🗑️ Clear History", use_container_width=True, disabled=ss.calling_in_progress):
-                    ss.call_history = []
+                st.download_button(
+                    "📥 Download CSV", 
+                    csv, 
+                    file_name=f"call_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+            with col2:
+                if st.button("🗑️ Clear History", use_container_width=True):
+                    st.session_state.call_history = []
                     st.rerun()
 
-def _append_history(contact, status, message):
-    ss.call_history.append({
+def poll_call_until_complete(twilio_caller, call_sid, contact, delay_between_calls, valid_contacts):
+    """Poll Twilio every 3 seconds until call is complete"""
+    terminal_statuses = {'completed', 'failed', 'busy', 'no-answer', 'canceled'}
+    status_display = st.empty()
+    
+    current_status = "queued"
+    
+    while True:
+        ok, status = twilio_caller.poll_status(call_sid)
+        
+        if not ok:
+            current_status = 'failed'
+            status_display.error(f"❌ Status check failed: {status}")
+            break
+        
+        current_status = status or 'unknown'
+        st.session_state.contact_statuses[st.session_state.current_calling_id] = current_status
+        
+        icon, status_text, _ = get_status_display(current_status)
+        status_display.info(f"{icon} {contact['name']}: {status_text}")
+        
+        if current_status in terminal_statuses:
+            break
+        
+        time.sleep(3)  # Poll every 3 seconds
+    
+    # Call completed - log result
+    human_status = current_status.replace('-', ' ').title()
+    
+    if current_status == 'completed':
+        status_display.success(f"✅ {contact['name']}: Call Completed")
+        log_status = "Completed"
+    else:
+        status_display.error(f"❌ {contact['name']}: {human_status}")
+        log_status = human_status
+    
+    # Add to history
+    st.session_state.call_history.append({
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'name': contact['name'],
         'number': contact['international'],
-        'status': status,
-        'message': message
+        'status': log_status,
+        'details': f"Call SID: {call_sid}"
     })
-
-def _log_to_sheet(contact, status, message):
-    if ss.sheets_logger and ss.sheets_logger.is_configured:
-        ok, err = ss.sheets_logger.log(
-            contact['name'],
-            contact['international'],
-            status,
-            message,
-            datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        )
-        if not ok:
-            st.warning(f"⚠️ Google Sheets log failed: {err}")
-
-def _poll_until_terminal(twilio_caller, call_sid, contact, delay_between_calls):
-    """
-    Poll Twilio for this call every 3 seconds.
-    When terminal, log & move to next (unless stop_after_current is True).
-    """
-    terminal = {'completed', 'failed', 'busy', 'no-answer', 'canceled'}
-    ui = st.empty()
-    status_now = "queued"
-
-    while True:
-        ok, status = twilio_caller.poll_status(call_sid)
-        if not ok:
-            ui.error(f"❌ Status fetch error: {status}")
-            status_now = 'failed'
-            break
-
-        status_now = status or 'unknown'
-        ss.contact_statuses[ss.current_calling_id] = status_now
-        ui.info(f"📡 Status: {status_now}")
-        time.sleep(3)
-
-        if status_now in terminal:
-            break
-
-    # finalize
-    human_readable = status_now.title() if status_now else 'Unknown'
-    if status_now == 'completed':
-        st.success(f"✅ {contact['name']}: Call {human_readable}")
-    else:
-        st.error(f"❌ {contact['name']}: {human_readable}")
-
-    _log_to_sheet(contact, 'Success' if status_now == 'completed' else human_readable, f"SID:{call_sid}")
-    _append_history(contact, 'Success' if status_now == 'completed' else human_readable, f"SID:{call_sid}")
-
-    # advance queue
-    if ss.call_queue and ss.call_queue[0] == ss.current_calling_id:
-        ss.call_queue.pop(0)
-    ss.current_calling_id = None
-
-    # Stop after current if requested, or if no more queued
-    if ss.stop_after_current or not ss.call_queue:
-        ss.calling_in_progress = False
-        if ss.stop_after_current:
-            st.info("⏹️ Stopped after current call as requested.")
+    
+    # Remove from queue
+    if st.session_state.call_queue and st.session_state.call_queue[0] == st.session_state.current_calling_id:
+        st.session_state.call_queue.pop(0)
+    
+    st.session_state.current_calling_id = None
+    
+    # Check if done
+    if not st.session_state.call_queue:
+        st.session_state.calling_in_progress = False
+        st.success("🎉 All calls completed!")
         st.rerun()
     else:
-        # delay between calls, then start the next one
+        # Wait before next call
         time.sleep(delay_between_calls)
         st.rerun()
 
