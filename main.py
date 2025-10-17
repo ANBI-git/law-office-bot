@@ -533,7 +533,7 @@ def main():
 
         operator_number = st.text_input(
             "Operator Number",
-            value="+817044448888",
+            value="+815017420037",
             help="Number to connect calls to"
         )
 
