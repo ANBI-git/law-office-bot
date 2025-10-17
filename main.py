@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# アクセシブルなライトテーマ（日本語UI）
+# アクセシブルなライトテーマ（日本語UI＋Browse files＋metric修正込み）
 st.markdown("""
 <style>
 :root {
@@ -140,6 +140,17 @@ div[data-testid="stDataFrame"] thead tr th{background:var(--bg-muted)!important;
 [data-testid="stFileUploader"] button:disabled{background-color:#9ca3af!important;border-color:#9ca3af!important;color:#ffffff!important;box-shadow:none!important;transform:none!important;}
 [data-testid="stFileUploader"] label,[data-testid="stFileUploader"] span,[data-testid="stFileUploader"] p{color:var(--text)!important;}
 [data-testid="stFileUploader"]{background-color:var(--bg)!important;}
+
+/* ====== ここから metric の白文字問題の修正 ====== */
+[data-testid="metric-container"]{
+  background:var(--bg)!important;
+  color:var(--text)!important;
+}
+[data-testid="metric-container"] *{color:var(--text)!important;}
+[data-testid="stMetricValue"],[data-testid="stMetricLabel"]{color:var(--text)!important;}
+[data-testid="stMetricDelta"] *,[data-testid="stMetricDeltaIcon-Up"],[data-testid="stMetricDeltaIcon-Down"]{
+  color:var(--text)!important; fill:var(--text)!important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -518,7 +529,6 @@ def main():
                 with b1:
                     if st.button("✅ すべて選択", use_container_width=True, disabled=st.session_state.calling_in_progress):
                         st.session_state.selected_contacts = set(c['id'] for c in valid_contacts)
-                        # 重要：各チェックボックスの状態も同期
                         for c in valid_contacts:
                             st.session_state[f"select_{c['id']}"] = True
                         st.rerun()
@@ -533,7 +543,7 @@ def main():
 
                 # 📞 発信開始
                 with b3:
-                    can_start = (selected > 0 and not st.session_state.calling_in_progress and twilio_caller)
+                    can_start = (selected > 0 and not st.session_state.calling_in_progress and 'twilio_caller' in locals() and twilio_caller)
                     if st.button("📞 発信開始", type="primary", use_container_width=True, disabled=not can_start):
                         st.session_state.call_queue = [c['id'] for c in valid_contacts if c['id'] in st.session_state.selected_contacts]
                         st.session_state.calling_in_progress = True
@@ -548,7 +558,6 @@ def main():
                         st.session_state.call_history = []
                         st.session_state.calling_in_progress = False
                         st.session_state.current_calling_id = None
-                        # チェックボックスの内部状態もクリア
                         for c in valid_contacts:
                             st.session_state[f"select_{c['id']}"] = False
                         st.rerun()
@@ -580,7 +589,7 @@ def main():
                 next_id = st.session_state.call_queue[0]
                 current_contact = next((c for c in valid_contacts if c['id'] == next_id), None)
 
-                if current_contact and twilio_caller:
+                if current_contact and 'twilio_caller' in locals() and twilio_caller:
                     st.session_state.contact_statuses[next_id] = 'ringing'
                     st.session_state.current_calling_id = next_id
 
