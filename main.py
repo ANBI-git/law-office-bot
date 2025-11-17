@@ -553,7 +553,7 @@ def main():
         enable_voicemail = st.checkbox("不在時に留守電メッセージを自動送信する", value=True)
         voicemail_text = st.text_area(
             "留守電メッセージ（読み上げ）",
-            value="Hello, this is voicemail.",
+            value="法律事務所です、改めてこちらの電話番号でお電話下さい 0 5 0 1 7 4 2 0 0 3 7",
             help="相手が出なかった場合に自動で再生されるメッセージです。"
         )
         vm_max_seconds = st.number_input(
