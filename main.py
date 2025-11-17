@@ -141,16 +141,11 @@ div[data-testid="stDataFrame"] thead tr th{background:var(--bg-muted)!important;
 [data-testid="stFileUploader"] label,[data-testid="stFileUploader"] span,[data-testid="stFileUploader"] p{color:var(--text)!important;}
 [data-testid="stFileUploader"]{background-color:var(--bg)!important;}
 
-/* ====== ここから metric の白文字問題の修正 ====== */
-[data-testid="metric-container"]{
-  background:var(--bg)!important;
-  color:var(--text)!important;
-}
+/* ====== metric の白文字問題の修正 ====== */
+[data-testid="metric-container"]{background:var(--bg)!important;color:var(--text)!important;}
 [data-testid="metric-container"] *{color:var(--text)!important;}
 [data-testid="stMetricValue"],[data-testid="stMetricLabel"]{color:var(--text)!important;}
-[data-testid="stMetricDelta"] *,[data-testid="stMetricDeltaIcon-Up"],[data-testid="stMetricDeltaIcon-Down"]{
-  color:var(--text)!important; fill:var(--text)!important;
-}
+[data-testid="stMetricDelta"] *,[data-testid="stMetricDeltaIcon-Up"],[data-testid="stMetricDeltaIcon-Down"]{color:var(--text)!important; fill:var(--text)!important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -170,7 +165,11 @@ if 'call_queue' not in st.session_state:
 if 'contact_statuses' not in st.session_state:
     st.session_state.contact_statuses = {}
 if 'voicemail_sids' not in st.session_state:
-    st.session_state.voicemail_sids = {}  # contact_id -> voicemail call SID
+    st.session_state.voicemail_sids = {}
+if 'paused' not in st.session_state:
+    st.session_state.paused = False
+if 'pause_snapshot_csv' not in st.session_state:
+    st.session_state.pause_snapshot_csv = None
 
 # クラス
 class JapanesePhoneProcessor:
@@ -265,7 +264,6 @@ class TwilioCaller:
 
     # 留守電通話用（相手が出たらメッセージを流す）
     def twiml_for_voicemail(self, voicemail_text: str, max_seconds: int = 60, do_record: bool = False):
-        # do_record=True にするとメッセージの後に相手の留守電へ録音指示も可能
         record_tag = f'<Record maxLength="{max_seconds}" playBeep="true" />' if do_record else ''
         return f"""
 <Response>
@@ -292,10 +290,6 @@ class TwilioCaller:
             return False, f"エラー: {str(e)}", None
 
     def make_voicemail_call(self, to_number, voicemail_text: str, max_seconds: int = 60):
-        """
-        留守電用に、相手へ自動メッセージ通話を発信
-        AMD（Answering Machine Detection）を有効化して、ボイスメールに繋がった場合でも再生確度を上げる
-        """
         if not self.is_configured:
             return False, "Twilioの設定が見つかりません", None
         try:
@@ -303,8 +297,7 @@ class TwilioCaller:
                 twiml=self.twiml_for_voicemail(voicemail_text, max_seconds=max_seconds, do_record=False),
                 to=to_number,
                 from_=self.from_number,
-                machine_detection='Enable'  # AMD を有効化（Twilio側のプラン要件に依存）
-                # amd_status_callback=...  # 必要ならコールバックURLを設定
+                machine_detection='Enable'  # AMD
             )
             return True, "留守電メッセージの送信を開始しました", call.sid
         except TwilioException as e:
@@ -392,6 +385,12 @@ def render_contact_card(contact, is_selected, contact_status):
             unsafe_allow_html=True
         )
 
+def _make_pause_snapshot_csv():
+    if not st.session_state.call_history:
+        return None
+    df = pd.DataFrame(st.session_state.call_history)
+    return df.to_csv(index=False).encode('utf-8')
+
 def poll_call_until_complete(twilio_caller, call_sid, contact, delay_between_calls,
                              enable_voicemail: bool, voicemail_text: str, vm_max_seconds: int):
     terminal_statuses = {'completed', 'failed', 'busy', 'no-answer', 'canceled'}
@@ -436,7 +435,6 @@ def poll_call_until_complete(twilio_caller, call_sid, contact, delay_between_cal
         )
         if vm_ok:
             st.session_state.voicemail_sids[contact['id']] = vm_sid
-            # poll voicemail call quickly (optional)
             vm_terminal = {'completed', 'failed', 'busy', 'no-answer', 'canceled'}
             while True:
                 ok2, st2 = twilio_caller.poll_status(vm_sid)
@@ -471,12 +469,20 @@ def poll_call_until_complete(twilio_caller, call_sid, contact, delay_between_cal
         'details': " | ".join(details)
     })
 
-    # dequeue and proceed
+    # dequeue current
     if st.session_state.call_queue and st.session_state.call_queue[0] == st.session_state.current_calling_id:
         st.session_state.call_queue.pop(0)
 
     st.session_state.current_calling_id = None
 
+    # If paused: stop advancing to next call (but keep queue intact)
+    if st.session_state.paused:
+        st.info("⏸️ 一時停止中：次の発信は停止しています（再開を押すまで進みません）")
+        # Take snapshot CSV for quick download
+        st.session_state.pause_snapshot_csv = _make_pause_snapshot_csv()
+        st.stop()  # prevent any further execution on this rerun
+
+    # continue if any left
     if not st.session_state.call_queue:
         st.session_state.calling_in_progress = False
         st.success("🎉 全ての発信が完了しました")
@@ -596,7 +602,7 @@ def main():
                 selected = len(st.session_state.selected_contacts)
                 completed = sum(1 for c in valid_contacts if st.session_state.contact_statuses.get(c['id']) == 'completed')
                 failed = sum(1 for c in valid_contacts if st.session_state.contact_statuses.get(c['id']) in ('failed', 'no-answer', 'busy', 'canceled'))
-                calling = 1 if st.session_state.calling_in_progress else 0
+                calling = 1 if st.session_state.calling_in_progress and not st.session_state.paused else 0
 
                 m1, m2, m3, m4, m5 = st.columns(5)
                 m1.metric("📋 総件数", total)
@@ -605,22 +611,10 @@ def main():
                 m4.metric("✅ 完了", completed)
                 m5.metric("❌ 失敗", failed)
 
-                if st.session_state.current_calling_id is not None:
-                    current_contact = next((c for c in valid_contacts if c['id'] == st.session_state.current_calling_id), None)
-                    if current_contact:
-                        current_status = st.session_state.contact_statuses.get(current_contact['id'], 'calling')
-                        icon, status_text, _ = get_status_display(current_status)
-                        st.markdown(f"""
-                        <div class="current-call-banner">
-                            <span>{icon} 現在の通話：{current_contact['name']} - {status_text}</span>
-                        </div>
-                        """, unsafe_allow_html=True)
-
+                # Pause/Resume controls + common actions
                 st.markdown("---")
+                b1, b2, b3, b4, b5, b6 = st.columns(6)
 
-                b1, b2, b3, b4 = st.columns(4)
-
-                # ✅ すべて選択
                 with b1:
                     if st.button("✅ すべて選択", use_container_width=True, disabled=st.session_state.calling_in_progress):
                         st.session_state.selected_contacts = set(c['id'] for c in valid_contacts)
@@ -628,7 +622,6 @@ def main():
                             st.session_state[f"select_{c['id']}"] = True
                         st.rerun()
 
-                # ❌ 選択を全解除
                 with b2:
                     if st.button("❌ 選択を全解除", use_container_width=True, disabled=st.session_state.calling_in_progress):
                         st.session_state.selected_contacts.clear()
@@ -636,16 +629,32 @@ def main():
                             st.session_state[f"select_{c['id']}"] = False
                         st.rerun()
 
-                # 📞 発信開始
                 with b3:
                     can_start = (selected > 0 and not st.session_state.calling_in_progress and 'twilio_caller' in locals() and twilio_caller)
                     if st.button("📞 発信開始", type="primary", use_container_width=True, disabled=not can_start):
                         st.session_state.call_queue = [c['id'] for c in valid_contacts if c['id'] in st.session_state.selected_contacts]
                         st.session_state.calling_in_progress = True
+                        st.session_state.paused = False
                         st.rerun()
 
-                # 🔄 全てリセット
+                # ⏸️ Pause
                 with b4:
+                    if st.button("⏸️ 一時停止", use_container_width=True,
+                                 disabled=not st.session_state.calling_in_progress or st.session_state.paused):
+                        st.session_state.paused = True
+                        # snapshot CSV now
+                        st.session_state.pause_snapshot_csv = _make_pause_snapshot_csv()
+                        st.rerun()
+
+                # ▶️ Resume
+                with b5:
+                    if st.button("▶️ 再開", use_container_width=True,
+                                 disabled=not st.session_state.paused or not st.session_state.call_queue):
+                        st.session_state.paused = False
+                        # continue from next item in queue
+                        st.rerun()
+
+                with b6:
                     if st.button("🔄 全てリセット", use_container_width=True, disabled=st.session_state.calling_in_progress):
                         st.session_state.selected_contacts.clear()
                         st.session_state.call_queue = []
@@ -653,15 +662,37 @@ def main():
                         st.session_state.call_history = []
                         st.session_state.calling_in_progress = False
                         st.session_state.current_calling_id = None
+                        st.session_state.paused = False
+                        st.session_state.pause_snapshot_csv = None
                         for c in valid_contacts:
                             st.session_state[f"select_{c['id']}"] = False
                         st.rerun()
 
-                if st.session_state.calling_in_progress and st.session_state.call_queue:
+                # If paused, show a banner + CSV downloader + progress summary
+                if st.session_state.paused:
+                    total_to_call = len([c for c in valid_contacts if c['id'] in st.session_state.selected_contacts])
+                    attempted = 0
+                    if st.session_state.call_history:
+                        # Count calls attempted that are in the selected set
+                        selected_intls = {c['international'] for c in valid_contacts if c['id'] in st.session_state.selected_contacts}
+                        attempted = sum(1 for h in st.session_state.call_history if h['number'] in selected_intls)
+                    st.warning(f"⏸️ 一時停止中：{attempted} / {total_to_call} 件まで発信済み。再開するには「再開▶️」を押してください。")
+
+                    if st.session_state.pause_snapshot_csv:
+                        st.download_button(
+                            "📥 停止時点のCSVをダウンロード",
+                            st.session_state.pause_snapshot_csv,
+                            file_name=f"call_history_paused_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                            mime="text/csv",
+                            use_container_width=True
+                        )
+
+                # Progress bar (not advancing while paused)
+                if st.session_state.calling_in_progress and st.session_state.call_queue is not None:
                     total_to_call = len([c for c in valid_contacts if c['id'] in st.session_state.selected_contacts])
                     remaining = len(st.session_state.call_queue)
+                    # attempted = total_to_call - remaining (but if paused, do not animate)
                     progress = (total_to_call - remaining) / total_to_call if total_to_call else 0
-
                     st.markdown(f"""
                     <div class="progress-container">
                         <div class="progress-bar" style="width: {progress * 100}%"></div>
@@ -670,16 +701,17 @@ def main():
                     st.info(f"📊 進捗：{total_to_call - remaining} / {total_to_call}")
 
             # 連絡先リスト
-            with st.expander("👥 連絡先リスト", expanded=True):
+            with st.expander("👥 連絡先リスト", extended := True):
                 for contact in valid_contacts:
                     is_selected = contact['id'] in st.session_state.selected_contacts
                     status = st.session_state.contact_statuses.get(contact['id'], 'waiting')
                     render_contact_card(contact, is_selected, status)
 
-            # 発信フロー
+            # 発信フロー：start next call only if NOT paused
             if (st.session_state.calling_in_progress and
                 st.session_state.call_queue and
-                st.session_state.current_calling_id is None):
+                st.session_state.current_calling_id is None and
+                not st.session_state.paused):
 
                 next_id = st.session_state.call_queue[0]
                 current_contact = next((c for c in valid_contacts if c['id'] == next_id), None)
