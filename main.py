@@ -140,6 +140,15 @@ div[data-testid="stDataFrame"] thead tr th{background:var(--bg-muted)!important;
 [data-testid="stFileUploader"] button:disabled{background-color:#9ca3af!important;border-color:#9ca3af!important;color:#ffffff!important;box-shadow:none!important;transform:none!important;}
 [data-testid="stFileUploader"] label,[data-testid="stFileUploader"] span,[data-testid="stFileUploader"] p{color:var(--text)!important;}
 [data-testid="stFileUploader"]{background-color:var(--bg)!important;}
+/* Force uploader helper text to white */
+[data-testid="stFileUploader"] label,
+[data-testid="stFileUploader"] span,
+[data-testid="stFileUploader"] p,
+[data-testid="stFileUploaderDropzone"] * {
+  color: #ffffff !important;
+}
+
+
 
 /* ====== metric の白文字問題の修正 ====== */
 [data-testid="metric-container"]{background:var(--bg)!important;color:var(--text)!important;}
