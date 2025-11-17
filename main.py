@@ -169,6 +169,8 @@ if 'call_queue' not in st.session_state:
     st.session_state.call_queue = []
 if 'contact_statuses' not in st.session_state:
     st.session_state.contact_statuses = {}
+if 'voicemail_sids' not in st.session_state:
+    st.session_state.voicemail_sids = {}  # contact_id -> voicemail call SID
 
 # クラス
 class JapanesePhoneProcessor:
@@ -251,12 +253,26 @@ class TwilioCaller:
             self.is_configured = False
             self.error = str(e)
 
+    # メイン通話用（相手が出たらオペレーターへ橋渡し）
     def twiml_for_call(self):
         return f"""
 <Response>
   <Dial timeout="30" record="record-from-answer">
     <Number>{self.operator_number}</Number>
   </Dial>
+</Response>
+""".strip()
+
+    # 留守電通話用（相手が出たらメッセージを流す）
+    def twiml_for_voicemail(self, voicemail_text: str, max_seconds: int = 60, do_record: bool = False):
+        # do_record=True にするとメッセージの後に相手の留守電へ録音指示も可能
+        record_tag = f'<Record maxLength="{max_seconds}" playBeep="true" />' if do_record else ''
+        return f"""
+<Response>
+  <Pause length="1"/>
+  <Say language="en-US">{voicemail_text}</Say>
+  {record_tag}
+  <Hangup/>
 </Response>
 """.strip()
 
@@ -274,6 +290,27 @@ class TwilioCaller:
             return False, f"Twilioエラー: {str(e)}", None
         except Exception as e:
             return False, f"エラー: {str(e)}", None
+
+    def make_voicemail_call(self, to_number, voicemail_text: str, max_seconds: int = 60):
+        """
+        留守電用に、相手へ自動メッセージ通話を発信
+        AMD（Answering Machine Detection）を有効化して、ボイスメールに繋がった場合でも再生確度を上げる
+        """
+        if not self.is_configured:
+            return False, "Twilioの設定が見つかりません", None
+        try:
+            call = self.client.calls.create(
+                twiml=self.twiml_for_voicemail(voicemail_text, max_seconds=max_seconds, do_record=False),
+                to=to_number,
+                from_=self.from_number,
+                machine_detection='Enable'  # AMD を有効化（Twilio側のプラン要件に依存）
+                # amd_status_callback=...  # 必要ならコールバックURLを設定
+            )
+            return True, "留守電メッセージの送信を開始しました", call.sid
+        except TwilioException as e:
+            return False, f"Twilioエラー(留守電): {str(e)}", None
+        except Exception as e:
+            return False, f"エラー(留守電): {str(e)}", None
 
     def poll_status(self, sid):
         try:
@@ -355,11 +392,13 @@ def render_contact_card(contact, is_selected, contact_status):
             unsafe_allow_html=True
         )
 
-def poll_call_until_complete(twilio_caller, call_sid, contact, delay_between_calls):
+def poll_call_until_complete(twilio_caller, call_sid, contact, delay_between_calls,
+                             enable_voicemail: bool, voicemail_text: str, vm_max_seconds: int):
     terminal_statuses = {'completed', 'failed', 'busy', 'no-answer', 'canceled'}
     status_display = st.empty()
     current_status = "queued"
 
+    # ---- 1st call status loop ----
     while True:
         ok, status = twilio_caller.poll_status(call_sid)
         if not ok:
@@ -385,14 +424,54 @@ def poll_call_until_complete(twilio_caller, call_sid, contact, delay_between_cal
         status_display.error(f"❌ {contact['name']}：{human_status}")
         log_status = human_status
 
+    # ---- Voicemail trigger on non-completed ----
+    vm_sid = None
+    vm_outcome = None
+    if enable_voicemail and current_status in {'no-answer', 'busy', 'failed', 'canceled'}:
+        st.info("📩 不在のため、留守電メッセージを送信します…")
+        vm_ok, vm_msg, vm_sid = twilio_caller.make_voicemail_call(
+            contact['international'],
+            voicemail_text=voicemail_text,
+            max_seconds=vm_max_seconds
+        )
+        if vm_ok:
+            st.session_state.voicemail_sids[contact['id']] = vm_sid
+            # poll voicemail call quickly (optional)
+            vm_terminal = {'completed', 'failed', 'busy', 'no-answer', 'canceled'}
+            while True:
+                ok2, st2 = twilio_caller.poll_status(vm_sid)
+                if not ok2:
+                    vm_outcome = f"留守電ステータス取得失敗: {st2}"
+                    st.warning(f"⚠️ {vm_outcome}")
+                    break
+                if st2 in vm_terminal:
+                    vm_outcome = f"留守電送信結果: {st2}"
+                    if st2 == 'completed':
+                        st.success("✅ 留守電メッセージの再生が完了しました")
+                    else:
+                        st.warning(f"⚠️ {vm_outcome}")
+                    break
+                time.sleep(3)
+        else:
+            vm_outcome = vm_msg
+            st.error(f"❌ 留守電の送信に失敗: {vm_msg}")
+
+    # ---- log ----
+    details = [f"Call SID: {call_sid}"]
+    if vm_sid:
+        details.append(f"Voicemail SID: {vm_sid}")
+    if vm_outcome:
+        details.append(vm_outcome)
+
     st.session_state.call_history.append({
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'name': contact['name'],
         'number': contact['international'],
-        'status': log_status,
-        'details': f"Call SID: {call_sid}"
+        'status': "完了" if current_status == 'completed' else human_status,
+        'details': " | ".join(details)
     })
 
+    # dequeue and proceed
     if st.session_state.call_queue and st.session_state.call_queue[0] == st.session_state.current_calling_id:
         st.session_state.call_queue.pop(0)
 
@@ -452,6 +531,22 @@ def main():
 
         st.markdown("---")
         call_delay = st.slider("通話間隔（秒）", 1, 30, 5)
+
+        # ===== Voicemail Settings =====
+        st.markdown("---")
+        st.markdown("### 📩 留守電設定")
+        enable_voicemail = st.checkbox("不在時に留守電メッセージを自動送信する", value=True)
+        voicemail_text = st.text_area(
+            "留守電メッセージ（読み上げ）",
+            value="Hello, this is voicemail.",
+            help="相手が出なかった場合に自動で再生されるメッセージです。"
+        )
+        vm_max_seconds = st.number_input(
+            "留守電の最大長（秒）",
+            min_value=5, max_value=180, value=60, step=5,
+            help="録音を有効にした場合の最大長。現状は読み上げのみ。"
+        )
+
         st.markdown("---")
         st.caption("💡 アップロード → 選択 → 発信")
 
@@ -525,7 +620,7 @@ def main():
 
                 b1, b2, b3, b4 = st.columns(4)
 
-                # ✅ すべて選択（チェックボックスの内部状態も更新）
+                # ✅ すべて選択
                 with b1:
                     if st.button("✅ すべて選択", use_container_width=True, disabled=st.session_state.calling_in_progress):
                         st.session_state.selected_contacts = set(c['id'] for c in valid_contacts)
@@ -533,7 +628,7 @@ def main():
                             st.session_state[f"select_{c['id']}"] = True
                         st.rerun()
 
-                # ❌ 選択を全解除（内部状態も更新）
+                # ❌ 選択を全解除
                 with b2:
                     if st.button("❌ 選択を全解除", use_container_width=True, disabled=st.session_state.calling_in_progress):
                         st.session_state.selected_contacts.clear()
@@ -619,7 +714,12 @@ def main():
                         st.rerun()
                     else:
                         st.success(f"✅ {current_contact['name']} へ発信中…")
-                        poll_call_until_complete(twilio_caller, sid, current_contact, call_delay)
+                        poll_call_until_complete(
+                            twilio_caller, sid, current_contact, call_delay,
+                            enable_voicemail=enable_voicemail,
+                            voicemail_text=voicemail_text.strip() or "Hello, this is voicemail.",
+                            vm_max_seconds=int(vm_max_seconds)
+                        )
 
     # 通話履歴
     if st.session_state.call_history:
