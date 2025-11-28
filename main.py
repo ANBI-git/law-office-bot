@@ -1,798 +1,237 @@
+"""
+===========================================
+留守電テストアプリ（Streamlit版）
+===========================================
+
+シンプルな留守電テスト用アプリ
+電話をかけて留守電メッセージを残すだけの機能
+
+使い方:
+streamlit run test_voicemail_app.py
+"""
+
 import streamlit as st
-import pandas as pd
-import re
-import time
-from datetime import datetime
 from twilio.rest import Client
 from twilio.base.exceptions import TwilioException
+import time
 
-# ページ設定
 st.set_page_config(
-    page_title="東京山王法律事務所 - コールシステム",
+    page_title="留守電テスト",
     page_icon="📞",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="centered"
 )
 
-# アクセシブルなライトテーマ（日本語UI＋Browse files＋metric修正込み）
-st.markdown("""
-<style>
-:root {
-  --bg: #ffffff;
-  --bg-soft: #f8f9fa;
-  --bg-muted: #f3f4f6;
-  --text: #1a1a1a;
-  --text-muted: #6b7280;
-  --primary: #3b82f6;
-  --primary-600: #2563eb;
-  --success: #10b981;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.1);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.12);
-}
+st.title("📞 留守電テスト")
+st.markdown("---")
 
-.stApp,[data-testid="stAppViewContainer"],[data-testid="stHeader"],[data-testid="stSidebar"]{
-  background-color:var(--bg)!important;color:var(--text)!important;
-}
+# Twilio設定
+st.header("1️⃣ Twilio設定")
 
-[data-testid="stSidebar"]{background-color:var(--bg-soft)!important;}
-[data-testid="stSidebar"] *{color:var(--text)!important;}
+col1, col2 = st.columns(2)
+with col1:
+    account_sid = st.text_input("Account SID", type="password")
+with col2:
+    auth_token = st.text_input("Auth Token", type="password")
 
-#MainMenu, footer {display:none;}
-header{visibility:hidden;}
+from_number = st.text_input("発信元番号（Twilio番号）", value="+815012345678", help="E.164形式")
+to_number = st.text_input("発信先番号（テスト用携帯）", value="+819012345678", help="E.164形式")
 
-.custom-header{
-  background:linear-gradient(135deg,#1e40af 0%,#3b82f6 50%,#60a5fa 100%);
-  padding:2.25rem;margin:-1rem -1rem 1.5rem -1rem;border-radius:0 0 20px 20px;
-  text-align:center;box-shadow:var(--shadow-md);
-}
-.custom-header *{color:#ffffff!important;}
-.custom-header h1{font-size:2.25rem;font-weight:700;margin:0;text-shadow:0 2px 4px rgba(0,0,0,0.1);}
-.custom-header p{margin:.5rem 0 0 0;opacity:.95;}
+st.markdown("---")
 
-.upload-section{
-  background:linear-gradient(135deg,#dbeafe 0%,#e0e7ff 100%);
-  border:2px dashed var(--primary);border-radius:12px;padding:1.25rem;text-align:center;margin:.75rem 0;
-  box-shadow:var(--shadow-sm);
-}
-.upload-section h4{color:#1e40af;margin:0 0 .25rem 0;font-weight:700;}
+# 留守電設定
+st.header("2️⃣ 留守電メッセージ")
 
-.contact-card{
-  background:var(--bg);border-radius:12px;padding:1rem;border:2px solid #e5e7eb;margin-bottom:.6rem;
-  display:flex;align-items:center;gap:1rem;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease;
-  box-shadow:var(--shadow-sm);
-}
-.contact-card:hover{border-color:var(--primary);transform:translateX(2px);box-shadow:0 4px 12px rgba(59,130,246,0.18);}
-.contact-avatar{
-  width:50px;height:50px;border-radius:50%;
-  background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
-  display:flex;align-items:center;justify-content:center;color:#ffffff;font-weight:700;font-size:18px;flex-shrink:0;
-}
-.contact-name{font-weight:700;color:var(--text);margin-bottom:4px;font-size:1.05rem;}
-.contact-phone{color:var(--text-muted);font-variant-numeric:tabular-nums;}
+voicemail_text = st.text_area(
+    "メッセージ（日本語）",
+    value="こちらは、弁護士法人はるかと申します。大切なご用件がありますので、折り返し御連絡下さい。宜しくお願い致します。",
+    height=100
+)
 
-.contact-status{
-  display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:20px;background:var(--bg-muted);
-  font-weight:600;color:var(--text);margin-left:auto;
-}
-.status-dot{width:10px;height:10px;border-radius:50%;}
-.status-waiting{background:#9ca3af;}
-.status-ringing{background:var(--warning);animation:pulse 1.5s infinite;}
-.status-connected{background:var(--primary);animation:pulse 1.5s infinite;}
-.status-completed{background:var(--success);}
-.status-failed{background:var(--danger);}
+# 音声設定
+st.header("3️⃣ 音声設定")
 
-.contact-selected{border-color:var(--primary);background:rgba(59,130,246,0.06);}
-.contact-calling{border-color:var(--warning);background:rgba(245,158,11,0.06);}
-.contact-completed{border-color:var(--success);background:rgba(16,185,129,0.06);}
-.contact-failed{border-color:var(--danger);background:rgba(239,68,68,0.06);}
-@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.7;transform:scale(1.05)}}
+voice_option = st.radio(
+    "音声タイプ",
+    options=[
+        "Polly.Mizuki（日本語女性・自然）",
+        "Polly.Takumi（日本語男性・自然）",
+        "基本音声（無料・ロボット風）"
+    ],
+    index=0
+)
 
-.progress-container{background:#e5e7eb;border-radius:10px;height:12px;overflow:hidden;margin:.8rem 0;}
-.progress-bar{height:100%;background:linear-gradient(90deg,var(--primary) 0%,#1d4ed8 100%);border-radius:10px;transition:width .3s ease;}
+# AMD設定
+use_amd = st.checkbox("AMD（留守電検出）を使用", value=True, help="留守電のビープ音を待ってからメッセージを再生")
 
-.current-call-banner{
-  background:linear-gradient(135deg,#f59e0b 0%,#f97316 100%);
-  color:#ffffff;padding:.9rem 1.2rem;border-radius:12px;margin:.75rem 0;font-size:1.05rem;font-weight:700;text-align:center;
-  box-shadow:0 4px 12px rgba(245,158,11,0.3);
-}
-.current-call-banner *{color:#ffffff!important;}
+pause_length = st.slider("メッセージ前の待機時間（秒）", 1, 15, 3, help="留守電アナウンス用の待機時間")
 
-.stButton>button{
-  border-radius:10px!important;font-weight:700!important;
-  transition:transform .15s ease,box-shadow .2s ease,border-color .2s ease!important;
-  background-color:var(--bg)!important;border:2px solid #e5e7eb!important;color:var(--text)!important;box-shadow:var(--shadow-sm)!important;
-}
-.stButton>button:hover{transform:translateY(-1px)!important;box-shadow:var(--shadow-md)!important;border-color:var(--primary)!important;}
-.stButton>button[kind="primary"]{background-color:var(--primary)!important;border-color:var(--primary)!important;color:#ffffff!important;}
+st.markdown("---")
 
-input,textarea,select,.stTextInput input,.stNumberInput input{
-  background-color:var(--bg)!important;color:var(--text)!important;border:1px solid #d1d5db!important;border-radius:8px!important;
-}
-.stSlider,.stRadio,.stCheckbox,label{color:var(--text)!important;}
+# テスト実行
+st.header("4️⃣ テスト実行")
 
-[data-testid="stExpander"]{background-color:var(--bg)!important;border:2px solid #e5e7eb!important;border-radius:10px!important;}
-[data-testid="stExpander"] summary{background-color:var(--bg-soft)!important;color:var(--text)!important;font-weight:700!important;padding:.9rem!important;}
-
-.stInfo,.stSuccess,.stWarning,.stError{background-color:var(--bg-soft)!important;color:var(--text)!important;border-radius:10px!important;}
-.stInfo *,.stSuccess *,.stWarning *,.stError *{color:var(--text)!important;}
-
-[data-testid="stDataFrame"] *{color:var(--text)!important;}
-div[data-testid="stDataFrame"] table{background:var(--bg)!important;}
-div[data-testid="stDataFrame"] thead tr th{background:var(--bg-muted)!important;color:var(--text)!important;font-weight:700!important;}
-
-[data-testid="stDownloadButton"] button{
-  background-color:var(--primary)!important;color:#ffffff!important;border-radius:10px!important;font-weight:700!important;
-}
-
-.stFileUploader > div > button,
-[data-testid="stFileUploader"] button{
-  background-color:var(--primary)!important;color:#ffffff!important;border:2px solid var(--primary)!important;border-radius:10px!important;
-  font-weight:700!important;box-shadow:var(--shadow-sm)!important;
-}
-.stFileUploader > div > button:hover,
-[data-testid="stFileUploader"] button:hover{background-color:var(--primary-600)!important;border-color:var(--primary-600)!important;transform:translateY(-1px);box-shadow:var(--shadow-md)!important;}
-.stFileUploader > div > button:focus,
-[data-testid="stFileUploader"] button:focus{outline:none!important;box-shadow:0 0 0 3px rgba(59,130,246,.35)!important;}
-.stFileUploader > div > button:disabled,
-[data-testid="stFileUploader"] button:disabled{background-color:#9ca3af!important;border-color:#9ca3af!important;color:#ffffff!important;box-shadow:none!important;transform:none!important;}
-[data-testid="stFileUploader"] label,[data-testid="stFileUploader"] span,[data-testid="stFileUploader"] p{color:var(--text)!important;}
-[data-testid="stFileUploader"]{background-color:var(--bg)!important;}
-[data-testid="stFileUploader"] label,
-[data-testid="stFileUploader"] span,
-[data-testid="stFileUploader"] p,
-[data-testid="stFileUploaderDropzone"] * {
-  color: #ffffff !important;
-}
-
-[data-testid="metric-container"]{background:var(--bg)!important;color:var(--text)!important;}
-[data-testid="metric-container"] *{color:var(--text)!important;}
-[data-testid="stMetricValue"],[data-testid="stMetricLabel"]{color:var(--text)!important;}
-[data-testid="stMetricDelta"] *,[data-testid="stMetricDeltaIcon-Up"],[data-testid="stMetricDeltaIcon-Down"]{color:var(--text)!important; fill:var(--text)!important;}
-</style>
-""", unsafe_allow_html=True)
-
-# セッションステート初期化
-if 'processed_numbers' not in st.session_state:
-    st.session_state.processed_numbers = []
-if 'call_history' not in st.session_state:
-    st.session_state.call_history = []
-if 'selected_contacts' not in st.session_state:
-    st.session_state.selected_contacts = set()
-if 'calling_in_progress' not in st.session_state:
-    st.session_state.calling_in_progress = False
-if 'current_calling_id' not in st.session_state:
-    st.session_state.current_calling_id = None
-if 'call_queue' not in st.session_state:
-    st.session_state.call_queue = []
-if 'contact_statuses' not in st.session_state:
-    st.session_state.contact_statuses = {}
-if 'paused' not in st.session_state:
-    st.session_state.paused = False
-if 'pause_snapshot_csv' not in st.session_state:
-    st.session_state.pause_snapshot_csv = None
-
-
-# ========================================
-# 電話番号処理クラス
-# ========================================
-class JapanesePhoneProcessor:
-    def __init__(self):
-        self.mobile_prefixes = ['070', '080', '090']
-
-    def clean_number(self, number):
-        if pd.isna(number):
-            return None
-        digits = re.sub(r'[^\d]', '', str(number).strip())
-        if not digits:
-            return None
-        if len(digits) == 9:
-            digits = '0' + digits
-        elif len(digits) == 10:
-            if not digits.startswith('0'):
-                digits = '0' + digits
-        elif len(digits) == 11:
-            if digits.startswith('81'):
-                digits = '0' + digits[2:]
-        elif len(digits) > 11:
-            digits = digits[:11]
+if st.button("📞 留守電テストを開始", type="primary", use_container_width=True):
+    
+    if not account_sid or not auth_token:
+        st.error("❌ Account SIDとAuth Tokenを入力してください")
+    elif not from_number or not to_number:
+        st.error("❌ 電話番号を入力してください")
+    else:
+        # 音声設定
+        if "Polly.Mizuki" in voice_option:
+            voice_attr = 'language="ja-JP" voice="Polly.Mizuki"'
+        elif "Polly.Takumi" in voice_option:
+            voice_attr = 'language="ja-JP" voice="Polly.Takumi"'
         else:
-            if len(digits) < 8:
-                return None
-        return digits
-
-    def validate_japanese_number(self, number):
-        if not number or not number.startswith('0'):
-            return False
-        if number[:3] in self.mobile_prefixes and len(number) == 11:
-            return True
-        if len(number) == 10:
-            if number.startswith('03') or number.startswith('06'):
-                return True
-            if number[1] in '123459':
-                return True
-        return False
-
-    def format_for_twilio(self, number):
-        if not self.validate_japanese_number(number):
-            return None
-        return '+81' + number[1:]
-
-    def process_numbers_with_names(self, data_list):
-        results = []
-        for idx, row in enumerate(data_list):
-            if isinstance(row, dict):
-                name = str(row.get('Name', row.get('name', f'担当者 {idx+1}')))
-                number = row.get('Phone_Number', row.get('phone_number', row.get('phone', '')))
-            else:
-                name = str(row[0]) if len(row) > 0 else f'担当者 {idx+1}'
-                number = row[1] if len(row) > 1 else ''
-            original = str(number) if not pd.isna(number) else ""
-            cleaned = self.clean_number(number)
-            if cleaned and self.validate_japanese_number(cleaned):
-                intl = self.format_for_twilio(cleaned)
-                status = "valid"
-            else:
-                intl = None
-                status = "invalid"
-            results.append({
-                'id': idx,
-                'name': name,
-                'original': original,
-                'cleaned': cleaned if cleaned else "N/A",
-                'international': intl if intl else "N/A",
-                'status': status
-            })
-        return results
-
-
-# ========================================
-# Twilio通話クラス（修正版）
-# ========================================
-class TwilioCaller:
-    def __init__(self, account_sid, auth_token, from_number, operator_number):
-        try:
-            self.client = Client(account_sid, auth_token)
-            self.from_number = from_number
-            self.operator_number = operator_number
-            self.is_configured = True
-        except Exception as e:
-            self.is_configured = False
-            self.error = str(e)
-
-    def twiml_for_call_only(self):
-        """
-        留守電なし - オペレーターへの接続のみ
-        """
-        return f"""
-<Response>
-  <Dial timeout="30" record="record-from-answer">
-    <Number>{self.operator_number}</Number>
-  </Dial>
-</Response>
-""".strip()
-
-    def twiml_for_call_with_voicemail(self, voicemail_text: str):
-        """
-        留守電あり - オペレーター接続を試み、失敗したら留守電メッセージを再生
+            voice_attr = 'language="ja-JP"'
         
-        流れ:
-        1. 相手に電話をかける
-        2. 相手が出たら、オペレーターに接続を試みる（25秒タイムアウト）
-        3. オペレーターが出たら通話開始
-        4. オペレーターが出なかった場合、<Dial>終了後に<Say>が実行される
-           → 留守電の場合、メッセージが録音される
-        
-        注意: language="ja-JP" と voice="Polly.Mizuki" で日本語音声を使用
-        """
-        # XMLエスケープ処理
+        # TwiML作成
         safe_text = voicemail_text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         
-        return f"""
+        twiml = f"""
 <Response>
-  <Dial timeout="25" record="record-from-answer">
-    <Number>{self.operator_number}</Number>
-  </Dial>
+  <Pause length="{pause_length}"/>
+  <Say {voice_attr}>{safe_text}</Say>
   <Pause length="2"/>
-  <Say language="ja-JP" voice="Polly.Mizuki">{safe_text}</Say>
-  <Pause length="1"/>
+  <Say {voice_attr}>{safe_text}</Say>
   <Hangup/>
 </Response>
 """.strip()
-
-    def make_call(self, to_number, person_name="", voicemail_text="", enable_voicemail=True):
-        """
-        電話をかける
         
-        Args:
-            to_number: 発信先番号（E.164形式）
-            person_name: 相手の名前（ログ用）
-            voicemail_text: 留守電メッセージ（空の場合は留守電なし）
-            enable_voicemail: 留守電機能を有効にするか
+        # TwiML表示
+        with st.expander("📄 生成されたTwiML"):
+            st.code(twiml, language="xml")
         
-        Returns:
-            (success, message, call_sid)
-        """
-        if not self.is_configured:
-            return False, "Twilioの設定が見つかりません", None
-        
+        # 発信
         try:
-            # 留守電テキストがあり、有効な場合は留守電付きTwiMLを使用
-            if enable_voicemail and voicemail_text and voicemail_text.strip():
-                twiml = self.twiml_for_call_with_voicemail(voicemail_text.strip())
-            else:
-                twiml = self.twiml_for_call_only()
+            client = Client(account_sid, auth_token)
             
-            call = self.client.calls.create(
-                twiml=twiml,
-                to=to_number,
-                from_=self.from_number
-            )
-            return True, f"{person_name} へ発信を開始しました", call.sid
-        
+            call_params = {
+                'twiml': twiml,
+                'to': to_number,
+                'from_': from_number
+            }
+            
+            if use_amd:
+                call_params['machine_detection'] = 'DetectMessageEnd'
+                call_params['machine_detection_timeout'] = 45
+            
+            st.info(f"📞 {to_number} に発信中...")
+            
+            call = client.calls.create(**call_params)
+            
+            st.success(f"✅ 発信成功！")
+            st.code(f"Call SID: {call.sid}")
+            
+            # ステータス監視
+            st.markdown("### 📊 通話ステータス")
+            status_container = st.empty()
+            progress_bar = st.progress(0)
+            
+            terminal_statuses = {'completed', 'failed', 'busy', 'no-answer', 'canceled'}
+            
+            step = 0
+            while step < 30:  # 最大90秒監視
+                try:
+                    call = client.calls(call.sid).fetch()
+                    status = call.status
+                    
+                    status_container.info(f"📞 ステータス: **{status}**")
+                    progress_bar.progress(min(step / 30, 1.0))
+                    
+                    if status in terminal_statuses:
+                        progress_bar.progress(1.0)
+                        
+                        if status == 'completed':
+                            st.success("✅ 通話完了！留守電を確認してください。")
+                        elif status == 'no-answer':
+                            st.warning("⚠️ 応答なし（留守電に転送されなかった可能性）")
+                        elif status == 'busy':
+                            st.warning("⚠️ 話し中でした")
+                        else:
+                            st.error(f"❌ 通話失敗: {status}")
+                        
+                        # 詳細情報
+                        with st.expander("📋 通話詳細"):
+                            st.write(f"- Call SID: {call.sid}")
+                            st.write(f"- ステータス: {status}")
+                            st.write(f"- 発信先: {to_number}")
+                            st.write(f"- 発信元: {from_number}")
+                            if hasattr(call, 'answered_by') and call.answered_by:
+                                st.write(f"- AnsweredBy: {call.answered_by}")
+                            if hasattr(call, 'duration') and call.duration:
+                                st.write(f"- 通話時間: {call.duration}秒")
+                        break
+                    
+                    time.sleep(3)
+                    step += 1
+                    
+                except Exception as e:
+                    st.error(f"❌ ステータス取得エラー: {e}")
+                    break
+            
         except TwilioException as e:
-            return False, f"Twilioエラー: {str(e)}", None
+            st.error(f"❌ Twilioエラー: {e}")
         except Exception as e:
-            return False, f"エラー: {str(e)}", None
+            st.error(f"❌ エラー: {e}")
 
-    def poll_status(self, sid):
-        """
-        通話ステータスを取得
-        """
-        try:
-            call = self.client.calls(sid).fetch()
-            return True, call.status
-        except Exception as e:
-            return False, str(e)
+st.markdown("---")
 
-
-# ========================================
-# ヘルパー関数
-# ========================================
-def get_initials(name):
-    words = name.split()
-    if len(words) >= 2:
-        return words[0][0].upper() + words[1][0].upper()
-    if len(words) == 1:
-        return words[0][:2].upper()
-    return "??"
-
-
-def get_status_display(status):
-    status_map = {
-        "waiting": ("⏳", "待機中", "status-waiting"),
-        "queued": ("⏳", "キュー", "status-waiting"),
-        "ringing": ("📳", "呼び出し中", "status-ringing"),
-        "in-progress": ("📞", "通話中", "status-connected"),
-        "completed": ("✅", "完了", "status-completed"),
-        "failed": ("❌", "失敗", "status-failed"),
-        "no-answer": ("❌", "不在", "status-failed"),
-        "busy": ("❌", "話し中", "status-failed"),
-        "canceled": ("❌", "キャンセル", "status-failed"),
-    }
-    return status_map.get(status, ("⏳", status, "status-waiting"))
-
-
-def render_contact_card(contact, is_selected, contact_status):
-    icon, status_text, status_class = get_status_display(contact_status)
-    initials = get_initials(contact['name'])
-
-    card_class = "contact-card"
-    if contact_status in ("ringing", "queued", "in-progress"):
-        card_class += " contact-calling"
-    elif contact_status == "completed":
-        card_class += " contact-completed"
-    elif contact_status in ("failed", "no-answer", "busy", "canceled"):
-        card_class += " contact-failed"
-    elif is_selected:
-        card_class += " contact-selected"
-
-    col1, col2 = st.columns([0.08, 0.92])
-
-    with col1:
-        checkbox_key = f"select_{contact['id']}"
-        new_selected = st.checkbox(
-            "",
-            key=checkbox_key,
-            value=is_selected,
-            label_visibility="collapsed",
-            disabled=st.session_state.calling_in_progress
-        )
-        if new_selected != is_selected:
-            if new_selected:
-                st.session_state.selected_contacts.add(contact['id'])
-            else:
-                st.session_state.selected_contacts.discard(contact['id'])
-            st.rerun()
-
-    with col2:
-        st.markdown(
-            f"""
-            <div class="{card_class}">
-                <div class="contact-avatar">{initials}</div>
-                <div class="contact-info">
-                    <div class="contact-name">{contact['name']}</div>
-                    <div class="contact-phone">{contact['international']}</div>
-                </div>
-                <div class="contact-status">
-                    <div class="status-dot {status_class}"></div>
-                    <span>{status_text}</span>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-
-def _make_pause_snapshot_csv():
-    if not st.session_state.call_history:
-        return None
-    df = pd.DataFrame(st.session_state.call_history)
-    return df.to_csv(index=False).encode('utf-8')
-
-
-def poll_call_until_complete(twilio_caller, call_sid, contact, delay_between_calls):
-    """
-    通話完了まで監視（シンプル版 - 留守電は同一通話内で処理される）
-    """
-    terminal_statuses = {'completed', 'failed', 'busy', 'no-answer', 'canceled'}
-    status_display = st.empty()
-    current_status = "queued"
-
-    # ステータス監視ループ
-    while True:
-        ok, status = twilio_caller.poll_status(call_sid)
-        if not ok:
-            current_status = 'failed'
-            status_display.error(f"❌ ステータスの取得に失敗: {status}")
-            break
-
-        current_status = status or 'unknown'
-        st.session_state.contact_statuses[st.session_state.current_calling_id] = current_status
-
-        icon, status_text, _ = get_status_display(current_status)
-        status_display.info(f"{icon} {contact['name']}：{status_text}")
-
-        if current_status in terminal_statuses:
-            break
-        time.sleep(3)
-
-    # 結果表示
-    human_status = current_status.replace('-', ' ').title()
-    if current_status == 'completed':
-        status_display.success(f"✅ {contact['name']}：通話完了（留守電の場合はメッセージ送信済み）")
-        log_status = "完了"
-    else:
-        status_display.error(f"❌ {contact['name']}：{human_status}")
-        log_status = human_status
-
-    # 履歴に記録
-    st.session_state.call_history.append({
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'name': contact['name'],
-        'number': contact['international'],
-        'status': log_status,
-        'details': f"Call SID: {call_sid}"
-    })
-
-    # キューから削除
-    if st.session_state.call_queue and st.session_state.call_queue[0] == st.session_state.current_calling_id:
-        st.session_state.call_queue.pop(0)
-
-    st.session_state.current_calling_id = None
-
-    # 一時停止中の場合
-    if st.session_state.paused:
-        st.info("⏸️ 一時停止中：次の発信は停止しています（再開を押すまで進みません）")
-        st.session_state.pause_snapshot_csv = _make_pause_snapshot_csv()
-        st.stop()
-
-    # 次の通話へ
-    if not st.session_state.call_queue:
-        st.session_state.calling_in_progress = False
-        st.success("🎉 全ての発信が完了しました")
-        st.rerun()
-    else:
-        time.sleep(delay_between_calls)
-        st.rerun()
-
-
-# ========================================
-# メインアプリ
-# ========================================
-def main():
+# 説明
+with st.expander("❓ 使い方"):
     st.markdown("""
-    <div class="custom-header">
-        <div>
-            <h1>📞 東京山王法律事務所</h1>
-            <p>ダイレクト接続コールシステム</p>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    ### テスト手順
+    
+    1. **Twilio認証情報を入力**
+       - Twilioコンソールから取得
+    
+    2. **電話番号を設定**
+       - 発信元: Twilioで購入した番号
+       - 発信先: テスト用の携帯番号（自分の番号）
+    
+    3. **メッセージを設定**
+       - 日本語で入力
+    
+    4. **テスト実行**
+       - ボタンを押す
+       - **電話に出ないでください！**
+       - 留守電に転送されるまで待つ
+    
+    5. **結果確認**
+       - 留守電を聞いて、メッセージが録音されているか確認
+    
+    ### AMD（Answering Machine Detection）とは？
+    
+    - Twilioが「人が出たか」「留守電が出たか」を判定する機能
+    - `DetectMessageEnd` = 留守電のビープ音を待ってからメッセージを再生
+    - これにより、留守電アナウンスとメッセージが被らない
+    
+    ### うまくいかない場合
+    
+    1. **AMDをオフにする** → 長い待機時間で対応
+    2. **待機時間を長くする** → 10-15秒
+    3. **基本音声を使う** → Pollyが使えない場合
+    """)
 
-    # サイドバー設定
-    with st.sidebar:
-        st.markdown("### ⚙️ 設定")
-
-        operator_number = st.text_input(
-            "オペレーター番号（接続先）",
-            value="+815017420037",
-            help="通話を転送するオペレーターの電話番号（E.164形式）"
-        )
-
-        # Twilio設定読み込み
-        twilio_caller = None
-        try:
-            if "twilio" in st.secrets:
-                account_sid = st.secrets["twilio"]["account_sid"]
-                auth_token = st.secrets["twilio"]["auth_token"]
-                from_number = st.secrets["twilio"]["from_number"]
-            else:
-                account_sid = st.secrets["account_sid"]
-                auth_token = st.secrets["auth_token"]
-                from_number = st.secrets["from_number"]
-
-            twilio_caller = TwilioCaller(account_sid, auth_token, from_number, operator_number)
-
-            if twilio_caller.is_configured:
-                st.success("✅ Twilio 接続済み")
-                st.info(f"📱 発信元: {from_number}")
-                st.info(f"👤 転送先: {operator_number}")
-            else:
-                st.error("❌ Twilio 設定エラー")
-                twilio_caller = None
-        except Exception as e:
-            st.error(f"❌ 設定の読み込みに失敗: {e}")
-            twilio_caller = None
-
-        st.markdown("---")
-        call_delay = st.slider("通話間隔（秒）", 1, 30, 5)
-
-        # 留守電設定
-        st.markdown("---")
-        st.markdown("### 📩 留守電設定")
-        enable_voicemail = st.checkbox("留守電メッセージを有効にする", value=True)
-        
-        voicemail_text = st.text_area(
-            "留守電メッセージ（日本語）",
-            value="こちらは、弁護士法人はるかと申します。大切なご用件がありますので、折り返し御連絡下さい。宜しくお願い致します。",
-            help="相手が出なかった場合に自動で再生されるメッセージです。日本語で入力してください。"
-        )
-
-        st.markdown("---")
-        st.caption("💡 アップロード → 選択 → 発信")
-        
-        # 動作説明
-        with st.expander("📖 動作説明"):
-            st.markdown("""
-            **通話の流れ:**
-            1. 相手に電話をかける
-            2. 相手が出たら、オペレーターへ接続
-            3. オペレーターが応答したら通話開始
-            
-            **留守電の場合:**
-            - オペレーターへの接続が完了しない
-            - 自動的に留守電メッセージが再生される
-            - 相手の留守電に録音される
-            
-            **注意:**
-            - 日本語音声（Polly.Mizuki）を使用
-            - メッセージは1回再生されます
-            """)
-
-    # ステップ1：連絡先アップロード
-    with st.expander("📂 ステップ1：連絡先リストをアップロード", expanded=True):
-        st.markdown("""
-        <div class="upload-section">
-            <h4>📋 Excelファイルをアップロード</h4>
-            <p><strong>Name</strong> と <strong>Phone_Number</strong> の列が必要です</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        uploaded_file = st.file_uploader("Excelファイルを選択", type=['xlsx', 'xls'], label_visibility="collapsed")
-
-        if uploaded_file:
-            try:
-                df = pd.read_excel(uploaded_file)
-                st.success(f"✅ {len(df)} 件の連絡先を読み込みました")
-
-                if 'Name' in df.columns and 'Phone_Number' in df.columns:
-                    processor = JapanesePhoneProcessor()
-                    results = processor.process_numbers_with_names(df.to_dict('records'))
-                    st.session_state.processed_numbers = results
-
-                    for c in results:
-                        st.session_state.contact_statuses.setdefault(c['id'], 'waiting')
-
-                    valid_count = sum(1 for r in results if r['status'] == 'valid')
-                    invalid_count = len(results) - valid_count
-
-                    col1, col2, col3 = st.columns(3)
-                    col1.metric("📋 総件数", len(results))
-                    col2.metric("✅ 有効", valid_count)
-                    col3.metric("❌ 無効", invalid_count)
-                else:
-                    st.warning("⚠️ 必須列が不足しています：'Name' と 'Phone_Number'")
-            except Exception as e:
-                st.error(f"❌ ファイル読込エラー: {e}")
-
-    # ステップ2：選択と発信
-    if st.session_state.processed_numbers:
-        valid_contacts = [c for c in st.session_state.processed_numbers if c['status'] == 'valid']
-
-        if valid_contacts:
-            with st.expander("📞 ステップ2：選択して発信", expanded=True):
-                total = len(valid_contacts)
-                selected = len(st.session_state.selected_contacts)
-                completed = sum(1 for c in valid_contacts if st.session_state.contact_statuses.get(c['id']) == 'completed')
-                failed = sum(1 for c in valid_contacts if st.session_state.contact_statuses.get(c['id']) in ('failed', 'no-answer', 'busy', 'canceled'))
-                calling = 1 if st.session_state.calling_in_progress and not st.session_state.paused else 0
-
-                m1, m2, m3, m4, m5 = st.columns(5)
-                m1.metric("📋 総件数", total)
-                m2.metric("🔵 選択中", selected)
-                m3.metric("📞 発信中", calling)
-                m4.metric("✅ 完了", completed)
-                m5.metric("❌ 失敗", failed)
-
-                # コントロールボタン
-                st.markdown("---")
-                b1, b2, b3, b4, b5, b6 = st.columns(6)
-
-                with b1:
-                    if st.button("✅ すべて選択", use_container_width=True, disabled=st.session_state.calling_in_progress):
-                        st.session_state.selected_contacts = set(c['id'] for c in valid_contacts)
-                        for c in valid_contacts:
-                            st.session_state[f"select_{c['id']}"] = True
-                        st.rerun()
-
-                with b2:
-                    if st.button("❌ 選択を全解除", use_container_width=True, disabled=st.session_state.calling_in_progress):
-                        st.session_state.selected_contacts.clear()
-                        for c in valid_contacts:
-                            st.session_state[f"select_{c['id']}"] = False
-                        st.rerun()
-
-                with b3:
-                    can_start = (selected > 0 and not st.session_state.calling_in_progress and twilio_caller is not None)
-                    if st.button("📞 発信開始", type="primary", use_container_width=True, disabled=not can_start):
-                        st.session_state.call_queue = [c['id'] for c in valid_contacts if c['id'] in st.session_state.selected_contacts]
-                        st.session_state.calling_in_progress = True
-                        st.session_state.paused = False
-                        st.rerun()
-
-                with b4:
-                    if st.button("⏸️ 一時停止", use_container_width=True,
-                                 disabled=not st.session_state.calling_in_progress or st.session_state.paused):
-                        st.session_state.paused = True
-                        st.session_state.pause_snapshot_csv = _make_pause_snapshot_csv()
-                        st.rerun()
-
-                with b5:
-                    if st.button("▶️ 再開", use_container_width=True,
-                                 disabled=not st.session_state.paused or not st.session_state.call_queue):
-                        st.session_state.paused = False
-                        st.rerun()
-
-                with b6:
-                    if st.button("🔄 全てリセット", use_container_width=True, disabled=st.session_state.calling_in_progress):
-                        st.session_state.selected_contacts.clear()
-                        st.session_state.call_queue = []
-                        st.session_state.contact_statuses = {c['id']: 'waiting' for c in valid_contacts}
-                        st.session_state.call_history = []
-                        st.session_state.calling_in_progress = False
-                        st.session_state.current_calling_id = None
-                        st.session_state.paused = False
-                        st.session_state.pause_snapshot_csv = None
-                        for c in valid_contacts:
-                            st.session_state[f"select_{c['id']}"] = False
-                        st.rerun()
-
-                # 一時停止中の表示
-                if st.session_state.paused:
-                    total_to_call = len([c for c in valid_contacts if c['id'] in st.session_state.selected_contacts])
-                    attempted = 0
-                    if st.session_state.call_history:
-                        selected_intls = {c['international'] for c in valid_contacts if c['id'] in st.session_state.selected_contacts}
-                        attempted = sum(1 for h in st.session_state.call_history if h['number'] in selected_intls)
-                    st.warning(f"⏸️ 一時停止中：{attempted} / {total_to_call} 件まで発信済み。再開するには「再開▶️」を押してください。")
-
-                    if st.session_state.pause_snapshot_csv:
-                        st.download_button(
-                            "📥 停止時点のCSVをダウンロード",
-                            st.session_state.pause_snapshot_csv,
-                            file_name=f"call_history_paused_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                            mime="text/csv",
-                            use_container_width=True
-                        )
-
-                # プログレスバー
-                if st.session_state.calling_in_progress and st.session_state.call_queue is not None:
-                    total_to_call = len([c for c in valid_contacts if c['id'] in st.session_state.selected_contacts])
-                    remaining = len(st.session_state.call_queue)
-                    progress = (total_to_call - remaining) / total_to_call if total_to_call else 0
-                    st.markdown(f"""
-                    <div class="progress-container">
-                        <div class="progress-bar" style="width: {progress * 100}%"></div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    st.info(f"📊 進捗：{total_to_call - remaining} / {total_to_call}")
-
-            # 連絡先リスト
-            with st.expander("👥 連絡先リスト", expanded=True):
-                for contact in valid_contacts:
-                    is_selected = contact['id'] in st.session_state.selected_contacts
-                    status = st.session_state.contact_statuses.get(contact['id'], 'waiting')
-                    render_contact_card(contact, is_selected, status)
-
-            # 発信処理
-            if (st.session_state.calling_in_progress and
-                st.session_state.call_queue and
-                st.session_state.current_calling_id is None and
-                not st.session_state.paused):
-
-                next_id = st.session_state.call_queue[0]
-                current_contact = next((c for c in valid_contacts if c['id'] == next_id), None)
-
-                if current_contact and twilio_caller:
-                    st.session_state.contact_statuses[next_id] = 'ringing'
-                    st.session_state.current_calling_id = next_id
-
-                    # 発信（留守電テキストを渡す）
-                    success, message, sid = twilio_caller.make_call(
-                        current_contact['international'],
-                        current_contact['name'],
-                        voicemail_text=voicemail_text if enable_voicemail else "",
-                        enable_voicemail=enable_voicemail
-                    )
-
-                    if not success:
-                        st.session_state.contact_statuses[next_id] = 'failed'
-                        st.error(f"❌ {current_contact['name']}：{message}")
-
-                        st.session_state.call_history.append({
-                            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                            'name': current_contact['name'],
-                            'number': current_contact['international'],
-                            'status': '失敗',
-                            'details': message
-                        })
-
-                        st.session_state.call_queue.pop(0)
-                        st.session_state.current_calling_id = None
-
-                        if not st.session_state.call_queue:
-                            st.session_state.calling_in_progress = False
-
-                        st.rerun()
-                    else:
-                        st.success(f"✅ {current_contact['name']} へ発信中…")
-                        poll_call_until_complete(
-                            twilio_caller, sid, current_contact, call_delay
-                        )
-
-    # 通話履歴
-    if st.session_state.call_history:
-        with st.expander("📋 通話履歴・結果", expanded=False):
-            history_df = pd.DataFrame(st.session_state.call_history)
-            st.dataframe(history_df, use_container_width=True, height=400)
-
-            col1, col2 = st.columns(2)
-            with col1:
-                csv = history_df.to_csv(index=False)
-                st.download_button(
-                    "📥 CSVをダウンロード",
-                    csv,
-                    file_name=f"call_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
-            with col2:
-                if st.button("🗑️ 履歴をクリア", use_container_width=True):
-                    st.session_state.call_history = []
-                    st.rerun()
-
-
-if __name__ == "__main__":
-    main()
+with st.expander("⚠️ 日本の携帯留守電について"):
+    st.markdown("""
+    ### 日本の携帯キャリア留守電
+    
+    - **docomo**: 留守番電話サービス（有料オプション）
+    - **au**: お留守番サービス（有料オプション）
+    - **SoftBank**: 留守番電話（有料オプション）
+    - **楽天モバイル**: 留守番電話（無料）
+    
+    ### 注意点
+    
+    1. **留守電が有効になっているか確認**
+       - キャリアのオプションで有効化が必要
+    
+    2. **呼び出し時間の設定**
+       - 短すぎると留守電に転送されない
+       - 通常15-30秒程度
+    
+    3. **伝言メモ vs キャリア留守電**
+       - 伝言メモ（端末機能）: Twilioからはアクセス不可
+       - キャリア留守電（ネットワーク機能）: Twilioで対応可能
+    """)
