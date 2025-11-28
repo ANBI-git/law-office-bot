@@ -277,7 +277,7 @@ class TwilioCaller:
         return f"""
 <Response>
   <Pause length="1"/>
-  <Say language="en-US">{voicemail_text}</Say>
+  <Say language="ja-JP" voice="Polly.Mizuki">{voicemail_text}</Say>
   {record_tag}
   <Hangup/>
 </Response>
