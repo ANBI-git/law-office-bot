@@ -6,7 +6,9 @@ from datetime import datetime
 from twilio.rest import Client
 from twilio.base.exceptions import TwilioException
 
-# ページ設定
+# =========================
+# PAGE CONFIG
+# =========================
 st.set_page_config(
     page_title="東京山王法律事務所 - コールシステム",
     page_icon="📞",
@@ -14,7 +16,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# アクセシブルなライトテーマ（日本語UI＋Browse files＋metric修正込み）
+# =========================
+# CSS (UNCHANGED)
+# =========================
 st.markdown("""
 <style>
 :root {
@@ -153,7 +157,9 @@ div[data-testid="stDataFrame"] thead tr th{background:var(--bg-muted)!important;
 </style>
 """, unsafe_allow_html=True)
 
-# セッションステート初期化
+# =========================
+# SESSION STATE INIT
+# =========================
 if 'processed_numbers' not in st.session_state:
     st.session_state.processed_numbers = []
 if 'call_history' not in st.session_state:
@@ -173,10 +179,9 @@ if 'paused' not in st.session_state:
 if 'pause_snapshot_csv' not in st.session_state:
     st.session_state.pause_snapshot_csv = None
 
-
-# ========================================
-# 電話番号処理クラス
-# ========================================
+# =========================
+# PHONE PROCESSOR (UNCHANGED)
+# =========================
 class JapanesePhoneProcessor:
     def __init__(self):
         self.mobile_prefixes = ['070', '080', '090']
@@ -246,110 +251,115 @@ class JapanesePhoneProcessor:
             })
         return results
 
-
-# ========================================
-# Twilio通話クラス（修正版）
-# ========================================
-class TwilioCaller:
-    def __init__(self, account_sid, auth_token, from_number, operator_number):
+# =========================
+# TWILIO STUDIO CALLER (UPDATED)
+# =========================
+class TwilioStudioCaller:
+    """
+    Triggers a Twilio Studio Flow execution (REST API trigger),
+    then polls Execution Context to surface CallStatus / CallSid.
+    """
+    def __init__(self, account_sid, auth_token, from_number, operator_number, flow_sid: str):
         try:
             self.client = Client(account_sid, auth_token)
+            self.account_sid = account_sid
             self.from_number = from_number
             self.operator_number = operator_number
+            self.flow_sid = flow_sid
             self.is_configured = True
         except Exception as e:
             self.is_configured = False
             self.error = str(e)
 
-    def twiml_for_call_only(self):
+    def start_execution(self, to_number: str, person_name: str, voicemail_text: str, enable_voicemail: bool):
         """
-        留守電なし - オペレーターへの接続のみ
-        """
-        return f"""
-<Response>
-  <Dial timeout="30" record="record-from-answer">
-    <Number>{self.operator_number}</Number>
-  </Dial>
-</Response>
-""".strip()
-
-    def twiml_for_call_with_voicemail(self, voicemail_text: str):
-        """
-        留守電あり - オペレーター接続を試み、失敗したら留守電メッセージを再生
-        
-        流れ:
-        1. 相手に電話をかける
-        2. 相手が出たら、オペレーターに接続を試みる（25秒タイムアウト）
-        3. オペレーターが出たら通話開始
-        4. オペレーターが出なかった場合、<Dial>終了後に<Say>が実行される
-           → 留守電の場合、メッセージが録音される
-        
-        注意: language="ja-JP" と voice="Polly.Mizuki" で日本語音声を使用
-        """
-        # XMLエスケープ処理
-        safe_text = voicemail_text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        
-        return f"""
-<Response>
-  <Dial timeout="25" record="record-from-answer">
-    <Number>{self.operator_number}</Number>
-  </Dial>
-  <Pause length="2"/>
-  <Say language="ja-JP" voice="Polly.Mizuki">{safe_text}</Say>
-  <Pause length="1"/>
-  <Hangup/>
-</Response>
-""".strip()
-
-    def make_call(self, to_number, person_name="", voicemail_text="", enable_voicemail=True):
-        """
-        電話をかける
-        
-        Args:
-            to_number: 発信先番号（E.164形式）
-            person_name: 相手の名前（ログ用）
-            voicemail_text: 留守電メッセージ（空の場合は留守電なし）
-            enable_voicemail: 留守電機能を有効にするか
-        
-        Returns:
-            (success, message, call_sid)
+        Start Studio Flow via Executions API.
+        - To/From are required and become {{contact.channel.address}} and {{flow.channel.address}}.
+        - parameters become {{flow.data.*}}.
         """
         if not self.is_configured:
             return False, "Twilioの設定が見つかりません", None
-        
+
         try:
-            # 留守電テキストがあり、有効な場合は留守電付きTwiMLを使用
-            if enable_voicemail and voicemail_text and voicemail_text.strip():
-                twiml = self.twiml_for_call_with_voicemail(voicemail_text.strip())
-            else:
-                twiml = self.twiml_for_call_only()
-            
-            call = self.client.calls.create(
-                twiml=twiml,
+            params = {
+                "operator_number": self.operator_number,
+                "contact_name": person_name or "",
+                "enable_voicemail": bool(enable_voicemail),
+                "voicemail_text": (voicemail_text or "").strip(),
+            }
+
+            execution = self.client.studio.v2.flows(self.flow_sid).executions.create(
                 to=to_number,
-                from_=self.from_number
+                from_=self.from_number,
+                parameters=params
             )
-            return True, f"{person_name} へ発信を開始しました", call.sid
-        
+            return True, f"{person_name} へ発信（Studio Flow）を開始しました", execution.sid
+
         except TwilioException as e:
             return False, f"Twilioエラー: {str(e)}", None
         except Exception as e:
             return False, f"エラー: {str(e)}", None
 
-    def poll_status(self, sid):
+    @staticmethod
+    def _walk_find_call_widget(context_obj, expected_to: str):
         """
-        通話ステータスを取得
+        Recursively find dicts containing CallSid/CallStatus, prefer the one whose 'To' matches expected_to.
+        """
+        candidates = []
+
+        def walk(o):
+            if isinstance(o, dict):
+                # candidate if it looks like a Make Outgoing Call widget data block
+                call_sid = o.get("CallSid") or o.get("call_sid")
+                call_status = o.get("CallStatus") or o.get("call_status")
+                if call_sid and str(call_sid).startswith("CA"):
+                    candidates.append(o)
+                for v in o.values():
+                    walk(v)
+            elif isinstance(o, list):
+                for v in o:
+                    walk(v)
+
+        walk(context_obj)
+
+        if not candidates:
+            return None
+
+        # Prefer candidate whose "To" equals expected_to
+        for c in candidates:
+            to_val = c.get("To") or c.get("to")
+            if to_val and expected_to and str(to_val).strip() == expected_to.strip():
+                return c
+
+        return candidates[0]
+
+    def poll_status(self, execution_sid: str, expected_to: str):
+        """
+        Returns (ok, call_status, call_sid, answered_by, execution_status)
         """
         try:
-            call = self.client.calls(sid).fetch()
-            return True, call.status
+            exec_obj = self.client.studio.v2.flows(self.flow_sid).executions(execution_sid).fetch()
+            execution_status = getattr(exec_obj, "status", None)  # usually 'active' or 'ended'
+
+            ctx_obj = self.client.studio.v2.flows(self.flow_sid).executions(execution_sid).execution_context().fetch()
+            ctx = getattr(ctx_obj, "context", None) or {}
+
+            widget_block = self._walk_find_call_widget(ctx, expected_to=expected_to)
+            if widget_block:
+                call_sid = widget_block.get("CallSid") or widget_block.get("call_sid")
+                call_status = widget_block.get("CallStatus") or widget_block.get("call_status")
+                answered_by = widget_block.get("AnsweredBy") or widget_block.get("answered_by")
+                return True, (call_status or "unknown"), call_sid, answered_by, (execution_status or "unknown")
+
+            # If we can't see CallStatus yet, fallback to execution status
+            return True, "queued" if execution_status == "active" else (execution_status or "unknown"), None, None, (execution_status or "unknown")
+
         except Exception as e:
-            return False, str(e)
+            return False, str(e), None, None, None
 
-
-# ========================================
-# ヘルパー関数
-# ========================================
+# =========================
+# HELPERS (UNCHANGED)
+# =========================
 def get_initials(name):
     words = name.split()
     if len(words) >= 2:
@@ -358,30 +368,31 @@ def get_initials(name):
         return words[0][:2].upper()
     return "??"
 
-
 def get_status_display(status):
     status_map = {
         "waiting": ("⏳", "待機中", "status-waiting"),
         "queued": ("⏳", "キュー", "status-waiting"),
         "ringing": ("📳", "呼び出し中", "status-ringing"),
         "in-progress": ("📞", "通話中", "status-connected"),
+        "active": ("📞", "実行中", "status-connected"),
         "completed": ("✅", "完了", "status-completed"),
+        "ended": ("✅", "終了", "status-completed"),
         "failed": ("❌", "失敗", "status-failed"),
         "no-answer": ("❌", "不在", "status-failed"),
         "busy": ("❌", "話し中", "status-failed"),
         "canceled": ("❌", "キャンセル", "status-failed"),
+        "unknown": ("⏳", "不明", "status-waiting"),
     }
     return status_map.get(status, ("⏳", status, "status-waiting"))
-
 
 def render_contact_card(contact, is_selected, contact_status):
     icon, status_text, status_class = get_status_display(contact_status)
     initials = get_initials(contact['name'])
 
     card_class = "contact-card"
-    if contact_status in ("ringing", "queued", "in-progress"):
+    if contact_status in ("ringing", "queued", "in-progress", "active"):
         card_class += " contact-calling"
-    elif contact_status == "completed":
+    elif contact_status in ("completed", "ended"):
         card_class += " contact-completed"
     elif contact_status in ("failed", "no-answer", "busy", "canceled"):
         card_class += " contact-failed"
@@ -424,71 +435,76 @@ def render_contact_card(contact, is_selected, contact_status):
             unsafe_allow_html=True
         )
 
-
 def _make_pause_snapshot_csv():
     if not st.session_state.call_history:
         return None
     df = pd.DataFrame(st.session_state.call_history)
     return df.to_csv(index=False).encode('utf-8')
 
-
-def poll_call_until_complete(twilio_caller, call_sid, contact, delay_between_calls):
+def poll_call_until_complete(twilio_caller: TwilioStudioCaller, execution_sid, contact, delay_between_calls):
     """
-    通話完了まで監視（シンプル版 - 留守電は同一通話内で処理される）
+    Poll Studio Execution Context until the call finishes.
+    We map widget CallStatus (completed/failed/no-answer/busy/etc.) to the UI.
     """
-    terminal_statuses = {'completed', 'failed', 'busy', 'no-answer', 'canceled'}
+    terminal_statuses = {'completed', 'failed', 'busy', 'no-answer', 'canceled', 'ended'}
     status_display = st.empty()
     current_status = "queued"
 
-    # ステータス監視ループ
+    call_sid = None
+    answered_by = None
+
     while True:
-        ok, status = twilio_caller.poll_status(call_sid)
+        ok, status_or_err, csid, ab, exec_status = twilio_caller.poll_status(execution_sid, expected_to=contact['international'])
         if not ok:
             current_status = 'failed'
-            status_display.error(f"❌ ステータスの取得に失敗: {status}")
+            status_display.error(f"❌ ステータスの取得に失敗: {status_or_err}")
             break
 
-        current_status = status or 'unknown'
+        current_status = status_or_err or 'unknown'
+        call_sid = csid or call_sid
+        answered_by = ab or answered_by
+
         st.session_state.contact_statuses[st.session_state.current_calling_id] = current_status
 
         icon, status_text, _ = get_status_display(current_status)
-        status_display.info(f"{icon} {contact['name']}：{status_text}")
+        extra = f"（AnsweredBy={answered_by}）" if answered_by else ""
+        status_display.info(f"{icon} {contact['name']}：{status_text} {extra}")
 
         if current_status in terminal_statuses:
             break
+
+        # If execution ended but we didn't see a final call status yet
+        if exec_status == "ended":
+            break
+
         time.sleep(3)
 
-    # 結果表示
-    human_status = current_status.replace('-', ' ').title()
-    if current_status == 'completed':
-        status_display.success(f"✅ {contact['name']}：通話完了（留守電の場合はメッセージ送信済み）")
+    human_status = str(current_status).replace('-', ' ').title()
+    if current_status in ('completed', 'ended'):
+        status_display.success(f"✅ {contact['name']}：完了（Studio Flow）")
         log_status = "完了"
     else:
         status_display.error(f"❌ {contact['name']}：{human_status}")
         log_status = human_status
 
-    # 履歴に記録
     st.session_state.call_history.append({
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'name': contact['name'],
         'number': contact['international'],
         'status': log_status,
-        'details': f"Call SID: {call_sid}"
+        'details': f"Execution SID: {execution_sid} | Call SID: {call_sid or 'N/A'} | AnsweredBy: {answered_by or 'N/A'}"
     })
 
-    # キューから削除
     if st.session_state.call_queue and st.session_state.call_queue[0] == st.session_state.current_calling_id:
         st.session_state.call_queue.pop(0)
 
     st.session_state.current_calling_id = None
 
-    # 一時停止中の場合
     if st.session_state.paused:
         st.info("⏸️ 一時停止中：次の発信は停止しています（再開を押すまで進みません）")
         st.session_state.pause_snapshot_csv = _make_pause_snapshot_csv()
         st.stop()
 
-    # 次の通話へ
     if not st.session_state.call_queue:
         st.session_state.calling_in_progress = False
         st.success("🎉 全ての発信が完了しました")
@@ -497,10 +513,9 @@ def poll_call_until_complete(twilio_caller, call_sid, contact, delay_between_cal
         time.sleep(delay_between_calls)
         st.rerun()
 
-
-# ========================================
-# メインアプリ
-# ========================================
+# =========================
+# MAIN APP (UNCHANGED except caller)
+# =========================
 def main():
     st.markdown("""
     <div class="custom-header">
@@ -511,7 +526,8 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-    # サイドバー設定
+    DEFAULT_FLOW_SID = "FW124b086acf26790e8ea4a7ed661362d5"
+
     with st.sidebar:
         st.markdown("### ⚙️ 設定")
 
@@ -521,7 +537,12 @@ def main():
             help="通話を転送するオペレーターの電話番号（E.164形式）"
         )
 
-        # Twilio設定読み込み
+        flow_sid = st.text_input(
+            "Studio Flow SID",
+            value=DEFAULT_FLOW_SID,
+            help="Twilio Studio Flow SID（FW...）"
+        )
+
         twilio_caller = None
         try:
             if "twilio" in st.secrets:
@@ -533,12 +554,13 @@ def main():
                 auth_token = st.secrets["auth_token"]
                 from_number = st.secrets["from_number"]
 
-            twilio_caller = TwilioCaller(account_sid, auth_token, from_number, operator_number)
+            twilio_caller = TwilioStudioCaller(account_sid, auth_token, from_number, operator_number, flow_sid)
 
             if twilio_caller.is_configured:
                 st.success("✅ Twilio 接続済み")
                 st.info(f"📱 発信元: {from_number}")
                 st.info(f"👤 転送先: {operator_number}")
+                st.info(f"🧩 Flow: {flow_sid}")
             else:
                 st.error("❌ Twilio 設定エラー")
                 twilio_caller = None
@@ -549,39 +571,28 @@ def main():
         st.markdown("---")
         call_delay = st.slider("通話間隔（秒）", 1, 30, 5)
 
-        # 留守電設定
         st.markdown("---")
         st.markdown("### 📩 留守電設定")
         enable_voicemail = st.checkbox("留守電メッセージを有効にする", value=True)
-        
+
         voicemail_text = st.text_area(
             "留守電メッセージ（日本語）",
             value="こちらは、弁護士法人はるかと申します。大切なご用件がありますので、折り返し御連絡下さい。宜しくお願い致します。",
-            help="相手が出なかった場合に自動で再生されるメッセージです。日本語で入力してください。"
+            help="Studio Flow側で {{flow.data.voicemail_text}} を使って再生してください。"
         )
 
         st.markdown("---")
         st.caption("💡 アップロード → 選択 → 発信")
-        
-        # 動作説明
+
         with st.expander("📖 動作説明"):
             st.markdown("""
-            **通話の流れ:**
-            1. 相手に電話をかける
-            2. 相手が出たら、オペレーターへ接続
-            3. オペレーターが応答したら通話開始
-            
-            **留守電の場合:**
-            - オペレーターへの接続が完了しない
-            - 自動的に留守電メッセージが再生される
-            - 相手の留守電に録音される
-            
-            **注意:**
-            - 日本語音声（Polly.Mizuki）を使用
-            - メッセージは1回再生されます
+            **通話の流れ（Studio）**
+            1. Streamlit → Studio Execution を作成
+            2. Flow内の Make Outgoing Call (AMD ON) で相手へ発信
+            3. AnsweredBy が human の時だけ Connect Call To でオペレーター接続
+            4. machine/unknown なら Say/Play で留守電を再生し Flow 終了（通話終了）
             """)
 
-    # ステップ1：連絡先アップロード
     with st.expander("📂 ステップ1：連絡先リストをアップロード", expanded=True):
         st.markdown("""
         <div class="upload-section">
@@ -617,7 +628,6 @@ def main():
             except Exception as e:
                 st.error(f"❌ ファイル読込エラー: {e}")
 
-    # ステップ2：選択と発信
     if st.session_state.processed_numbers:
         valid_contacts = [c for c in st.session_state.processed_numbers if c['status'] == 'valid']
 
@@ -625,7 +635,7 @@ def main():
             with st.expander("📞 ステップ2：選択して発信", expanded=True):
                 total = len(valid_contacts)
                 selected = len(st.session_state.selected_contacts)
-                completed = sum(1 for c in valid_contacts if st.session_state.contact_statuses.get(c['id']) == 'completed')
+                completed = sum(1 for c in valid_contacts if st.session_state.contact_statuses.get(c['id']) in ('completed', 'ended'))
                 failed = sum(1 for c in valid_contacts if st.session_state.contact_statuses.get(c['id']) in ('failed', 'no-answer', 'busy', 'canceled'))
                 calling = 1 if st.session_state.calling_in_progress and not st.session_state.paused else 0
 
@@ -636,7 +646,6 @@ def main():
                 m4.metric("✅ 完了", completed)
                 m5.metric("❌ 失敗", failed)
 
-                # コントロールボタン
                 st.markdown("---")
                 b1, b2, b3, b4, b5, b6 = st.columns(6)
 
@@ -689,7 +698,6 @@ def main():
                             st.session_state[f"select_{c['id']}"] = False
                         st.rerun()
 
-                # 一時停止中の表示
                 if st.session_state.paused:
                     total_to_call = len([c for c in valid_contacts if c['id'] in st.session_state.selected_contacts])
                     attempted = 0
@@ -707,7 +715,6 @@ def main():
                             use_container_width=True
                         )
 
-                # プログレスバー
                 if st.session_state.calling_in_progress and st.session_state.call_queue is not None:
                     total_to_call = len([c for c in valid_contacts if c['id'] in st.session_state.selected_contacts])
                     remaining = len(st.session_state.call_queue)
@@ -719,14 +726,13 @@ def main():
                     """, unsafe_allow_html=True)
                     st.info(f"📊 進捗：{total_to_call - remaining} / {total_to_call}")
 
-            # 連絡先リスト
             with st.expander("👥 連絡先リスト", expanded=True):
                 for contact in valid_contacts:
                     is_selected = contact['id'] in st.session_state.selected_contacts
                     status = st.session_state.contact_statuses.get(contact['id'], 'waiting')
                     render_contact_card(contact, is_selected, status)
 
-            # 発信処理
+            # ====== CALLING PROCESS (UPDATED to Studio Execution) ======
             if (st.session_state.calling_in_progress and
                 st.session_state.call_queue and
                 st.session_state.current_calling_id is None and
@@ -736,13 +742,12 @@ def main():
                 current_contact = next((c for c in valid_contacts if c['id'] == next_id), None)
 
                 if current_contact and twilio_caller:
-                    st.session_state.contact_statuses[next_id] = 'ringing'
+                    st.session_state.contact_statuses[next_id] = 'queued'
                     st.session_state.current_calling_id = next_id
 
-                    # 発信（留守電テキストを渡す）
-                    success, message, sid = twilio_caller.make_call(
-                        current_contact['international'],
-                        current_contact['name'],
+                    success, message, execution_sid = twilio_caller.start_execution(
+                        to_number=current_contact['international'],
+                        person_name=current_contact['name'],
                         voicemail_text=voicemail_text if enable_voicemail else "",
                         enable_voicemail=enable_voicemail
                     )
@@ -767,12 +772,11 @@ def main():
 
                         st.rerun()
                     else:
-                        st.success(f"✅ {current_contact['name']} へ発信中…")
+                        st.success(f"✅ {current_contact['name']} へ発信中…（Studio Flow）")
                         poll_call_until_complete(
-                            twilio_caller, sid, current_contact, call_delay
+                            twilio_caller, execution_sid, current_contact, call_delay
                         )
 
-    # 通話履歴
     if st.session_state.call_history:
         with st.expander("📋 通話履歴・結果", expanded=False):
             history_df = pd.DataFrame(st.session_state.call_history)
@@ -792,7 +796,6 @@ def main():
                 if st.button("🗑️ 履歴をクリア", use_container_width=True):
                     st.session_state.call_history = []
                     st.rerun()
-
 
 if __name__ == "__main__":
     main()
